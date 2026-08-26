@@ -5,85 +5,94 @@ import {
 	Modal,
 	Notice,
 	Plugin,
+	TFolder,
+	TFile,
+	App,
 } from 'obsidian';
 import {
 	DEFAULT_SETTINGS,
 	MyPluginSettings,
 	SampleSettingTab,
 } from './settings';
+import { ALLOWED_EXTENSIONS } from './constants';
+import { PublishModal } from './publishModal';
 
-// Remember to rename these classes and interfaces!
+interface BrokenLink {
+source: string;   // plik, który linkuje
+target: string;   // plik, do którego linkuje
+}
 
-export default class MyPlugin extends Plugin {
+function collectFiles(folder: TFolder): TFile[] {
+	const result: TFile[] = [];
+
+	for (const child of folder.children) {
+		if (child instanceof TFile) {
+			// filter files by allowed extensions
+			if (ALLOWED_EXTENSIONS.includes(child.extension)) {
+				result.push(child);
+			}
+		}else if (child instanceof TFolder) {
+			// recursively collect files from subfolders
+			if (child.name.startsWith(".")) continue;
+			//? ZROZUMIEC TEN SYNTAX REKURENCJI
+			result.push(...collectFiles(child));
+		}
+	}
+	return result;
+}
+
+function findBrokenLinks(app: App, files: TFile[]): BrokenLink[] {
+
+	const mdFiles = files.filter(file => file.extension === "md");
+	const results: BrokenLink[] = []
+	const validPaths = new Set(files.map(f => f.path))
+	for (const file of mdFiles) {
+		// ches if links in the files are correct
+		const links = app.metadataCache.resolvedLinks[file.path] 
+		if( links === undefined) continue;
+	
+		for (const target in links) {
+			if (!validPaths.has(target)) {
+				results.push({ source: file.path, target });
+			}
+		}
+	}
+	return results;
+}
+
+export default class MarketplacexPlugin extends Plugin {
 	settings!: MyPluginSettings;
 
 	async onload() {
 		await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (_evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status bar text');
-
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-modal-simple',
-			name: 'Open modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			},
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'replace-selected',
-			name: 'Replace selected content',
-			editorCallback: (
-				editor: Editor,
-				_ctx: MarkdownView | MarkdownFileInfo,
-			) => {
-				editor.replaceSelection('Sample editor command');
-			},
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-modal-complex',
-			name: 'Open modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView =
-					this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
+		//Uruchamia się za każdym razem, gdy ktoś otworzy menu kontekstowe pliku lub folderu w panelu plików.
+		this.registerEvent(
+			this.app.workspace.on('file-menu', (menu,file)=> {
+				//sprawdz czy to folder
+				if (!(file instanceof TFolder)) {
+					return;
 				}
-				return false;
-			},
-		});
 
+				// menu
+				menu.addItem((item) => {
+					item.setTitle('Opublikuj')
+						.setIcon('upload')
+						.onClick(async () => {
+							try{
+								await this.openPublishModalIfValid(file);
+							}catch(e){
+								new Notice(
+									"Błąd publikacji: " +
+									(e instanceof Error ? e.message : String(e)),
+								);
+							}
+						})
+				})
+			})
+		)
 		// This adds a settings tab so the user can configure various aspects of the plugin
 		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(activeDocument, 'click', (_evt: MouseEvent) => {
-			new Notice('Click');
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(
-			window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000),
-		);
 	}
 
 	onunload() {}
@@ -99,16 +108,27 @@ export default class MyPlugin extends Plugin {
 	async saveSettings() {
 		await this.saveData(this.settings);
 	}
-}
 
-class SampleModal extends Modal {
-	onOpen() {
-		const { contentEl } = this;
-		contentEl.setText('Woah!');
+	async openPublishModalIfValid(folder: TFolder): Promise<void> {
+	// Collect all files in the folder and its subfolders
+	const files = collectFiles(folder);
+
+	if (files.length === 0) {
+		new Notice("Brak plików do opublikowania");
+		return;
 	}
 
-	onClose() {
-		const { contentEl } = this;
-		contentEl.empty();
+	// resolve broken links
+	const brokenLinks = findBrokenLinks(this.app, files)
+
+	// if broken links found, show a notice and abort - do not open the modal
+	if (brokenLinks.length > 0) {
+		const brokenLinksMessage = brokenLinks.map(link => `Source: ${link.source}, Target: ${link.target}`).join('\n');
+		new Notice(`Znaleziono ${brokenLinks.length} uszkodzonych linków:\n${brokenLinksMessage}`);
+		return;
+	}
+
+	new PublishModal(this.app, folder).open();
 	}
 }
+
