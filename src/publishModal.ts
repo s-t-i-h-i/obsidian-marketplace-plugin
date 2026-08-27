@@ -1,119 +1,133 @@
-import { App, Modal, Setting, Notice, TFolder } from "obsidian";
-import JSZip from "jszip";
-import { ALLOWED_EXTENSIONS } from './constants';
+import { ButtonComponent, Modal, Notice, Setting, TFile, TFolder } from 'obsidian';
+import MarketplacePlugin from './main';
+import { collectFiles, findBrokenLinks } from './files';
+import { publishFolder } from './publishApi';
 
-const API_BASE = "https://your-worker.workers.dev"; // podmień na swój URL
+type FieldKey = 'title' | 'description' | 'author' | 'tags';
 
-export class PublishModal extends Modal {
-private folder: TFolder;
-private title = "";
-private description = "";
-private author = "";
-private tags = "";
-private isPublishing = false;
+const FIELDS: { key: FieldKey; name: string; desc?: string; multiline?: boolean }[] = [
+	{ key: 'title', name: 'Tytuł' },
+	{ key: 'description', name: 'Opis', multiline: true },
+	{ key: 'author', name: 'Autor' },
+	{ key: 'tags', name: 'Tagi', desc: 'Oddzielone przecinkami' },
+];
 
-constructor(app: App, folder: TFolder) {
-    super(app);
-    this.folder = folder;
+/** Sprawdza folder i otwiera formularz publikacji tylko gdy nie ma uszkodzonych linków. */
+export function openPublishModal(plugin: MarketplacePlugin, folder: TFolder): void {
+	const files = collectFiles(folder);
+	if (files.length === 0) {
+		new Notice('Brak plików do opublikowania');
+		return;
+	}
+
+	const brokenLinks = findBrokenLinks(plugin.app, files);
+	if (brokenLinks.length > 0) {
+		const details = brokenLinks
+			.map((link) => `${link.source} → ${link.target}`)
+			.join('\n');
+		new Notice(`Znaleziono ${brokenLinks.length} uszkodzonych linków:\n${details}`);
+		return;
+	}
+
+	// lista jedzie dalej do modala, żeby nie liczyć jej drugi raz przy pakowaniu
+	new PublishModal(plugin, folder, files).open();
 }
 
-onOpen() {
-    const { contentEl } = this;
-    contentEl.createEl("h2", { text: `Publikuj: ${this.folder.name}` });
+class PublishModal extends Modal {
+	private plugin: MarketplacePlugin;
+	private folder: TFolder;
+	private files: TFile[];
+	private values: Record<FieldKey, string>;
 
-    new Setting(contentEl)
-    .setName("Tytuł")
-    .addText((text) => text.onChange((value) => (this.title = value)));
+	constructor(plugin: MarketplacePlugin, folder: TFolder, files: TFile[]) {
+		super(plugin.app);
+		this.plugin = plugin;
+		this.folder = folder;
+		this.files = files;
+		this.values = {
+			title: folder.name,
+			description: '',
+			author: plugin.settings.defaultAuthor,
+			tags: '',
+		};
+	}
 
-    new Setting(contentEl)
-    .setName("Opis")
-    .addTextArea((text) => text.onChange((value) => (this.description = value)));
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+		contentEl.createEl('h2', { text: `Publikuj: ${this.folder.name}` });
 
-    new Setting(contentEl)
-    .setName("Autor")
-    .addText((text) => text.onChange((value) => (this.author = value)));
+		for (const field of FIELDS) {
+			const setting = new Setting(contentEl).setName(field.name);
+			if (field.desc) setting.setDesc(field.desc);
 
-    new Setting(contentEl)
-    .setName("Tagi")
-    .setDesc("Oddzielone przecinkami")
-    .addText((text) => text.onChange((value) => (this.tags = value)));
+			const value = this.values[field.key];
+			const onChange = (next: string) => (this.values[field.key] = next);
 
-    new Setting(contentEl).addButton((btn) =>
-    btn
-        .setButtonText("Publish")
-        .setCta()
-        .onClick(() => this.handlePublish())
-    );
-}
+			if (field.multiline) {
+				setting.addTextArea((text) => text.setValue(value).onChange(onChange));
+			} else {
+				setting.addText((text) => text.setValue(value).onChange(onChange));
+			}
+		}
 
-private async handlePublish() {
-    if (this.isPublishing) return;
+		new Setting(contentEl).addButton((button) =>
+			button
+				.setButtonText('Publikuj')
+				.setCta()
+				.onClick(() => void this.publish(button)),
+		);
+	}
 
-    if (!this.title.trim() || !this.author.trim()) {
-    new Notice("Tytuł i autor są wymagane");
-    return;
-    }
+	private async publish(button: ButtonComponent) {
+		const title = this.values.title.trim();
+		const author = this.values.author.trim();
+		const apiBaseUrl = this.plugin.settings.apiBaseUrl.trim();
 
-    this.isPublishing = true;
-    new Notice("Pakowanie folderu...");
+		if (!title || !author) {
+			new Notice('Tytuł i autor są wymagane');
+			return;
+		}
+		if (!apiBaseUrl) {
+			new Notice('Ustaw adres API w ustawieniach pluginu');
+			return;
+		}
 
-    try {
-    const zipBlob = await this.packFolder();
+		// setDisabled() wymaga Obsidian 1.2.3, buttonEl działa na każdej wersji
+		button.buttonEl.disabled = true;
+		button.setButtonText('Publikowanie...');
 
-    new Notice("Wysyłanie...");
-    await this.upload(zipBlob);
+		try {
+			await publishFolder(
+				this.app,
+				this.folder,
+				this.files,
+				{
+					title,
+					author,
+					description: this.values.description.trim(),
+					tags: this.values.tags
+						.split(',')
+						.map((tag) => tag.trim())
+						.filter((tag) => tag.length > 0),
+				},
+				apiBaseUrl,
+			);
 
-    new Notice("Opublikowano");
-    this.close();
-    } catch (err) {
-    console.error(err);
-    new Notice("Błąd publikacji: " + (err as Error).message);
-    } finally {
-    this.isPublishing = false;
-    }
-}
+			new Notice('Opublikowano');
+			this.close();
+		} catch (error) {
+			console.error(error);
+			new Notice(
+				'Błąd publikacji: ' +
+					(error instanceof Error ? error.message : String(error)),
+			);
+			button.buttonEl.disabled = false;
+			button.setButtonText('Publikuj');
+		}
+	}
 
-private async packFolder(): Promise<Blob> {
-    const zip = new JSZip();
-    const prefix = this.folder.path + "/";
-
-    const files = this.app.vault
-    .getFiles()
-    .filter((file) => file.path.startsWith(prefix));
-
-    for (const file of files) {
-    if (!ALLOWED_EXTENSIONS.includes(file.extension)) {
-        continue;
-    }
-
-    const content = await this.app.vault.readBinary(file);
-    const relativePath = file.path.slice(prefix.length);
-    zip.file(relativePath, content);
-    }
-
-    return zip.generateAsync({ type: "blob" });
-}
-
-private async upload(zipBlob: Blob): Promise<void> {
-    const formData = new FormData();
-    formData.append("title", this.title.trim());
-    formData.append("description", this.description.trim());
-    formData.append("author", this.author.trim());
-    formData.append("tags", this.tags.trim());
-    formData.append("file", zipBlob, `${this.folder.name}.zip`);
-
-    const response = await fetch(`${API_BASE}/publish`, {
-    method: "POST",
-    body: formData,
-    });
-
-    if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`${response.status}: ${body}`);
-    }
-}
-
-onClose() {
-    this.contentEl.empty();
-}
+	onClose() {
+		this.contentEl.empty();
+	}
 }

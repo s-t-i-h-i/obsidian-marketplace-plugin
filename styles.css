@@ -1,8 +1,40 @@
-/*
+.marketplace-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+	gap: 12px;
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.marketplace-card {
+	padding: 12px 14px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 8px;
+	background: var(--background-secondary);
+	transition: border-color 0.15s ease;
+}
 
-If your plugin does not need CSS, delete this file.
+.marketplace-card:hover {
+	border-color: var(--interactive-accent);
+}
 
-*/
+.marketplace-card-title {
+	font-weight: 600;
+	margin-bottom: 4px;
+}
+
+.marketplace-card-meta {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	margin-bottom: 6px;
+}
+
+.marketplace-card-desc {
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	white-space: pre-wrap;
+}
+
+.marketplace-card-actions {
+	display: flex;
+	justify-content: flex-end;
+	margin-top: 10px;
+}
