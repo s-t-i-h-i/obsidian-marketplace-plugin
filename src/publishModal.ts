@@ -34,6 +34,7 @@ export function openPublishModal(plugin: MarketplacePlugin, folder: TFolder): vo
 }
 
 class PublishModal extends Modal {
+	//private oznacza pole widoczne tylko wewnątrz klasy
 	private plugin: MarketplacePlugin;
 	private folder: TFolder;
 	private files: TFile[];

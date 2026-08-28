@@ -1,7 +1,7 @@
 import { requestUrl } from 'obsidian';
 
-/** Kurs w postaci, jakiej oczekuje interfejs - pola zawsze istnieją i mają właściwy typ. */
-export interface Course {
+/** Paczka w postaci, jakiej oczekuje interfejs - pola zawsze istnieją i mają właściwy typ. */
+export interface Package {
 	id: string;
 	title: string;
 	description: string;
@@ -11,7 +11,7 @@ export interface Course {
 	createdAt: string;
 }
 
-export async function downloadCourseArchive(apiBaseUrl: string, id: string): Promise<ArrayBuffer>{
+export async function downloadPackageArchive(apiBaseUrl: string, id: string): Promise<ArrayBuffer>{
 	const response = await requestUrl({
 		url: `${apiBaseUrl.replace(/\/+$/, '')}/download/${encodeURIComponent(id)}`,
 		method: 'GET',
@@ -30,10 +30,10 @@ export async function downloadCourseArchive(apiBaseUrl: string, id: string): Pro
 }
 
 
-/** Pobiera listę kursów z serwera marketplace. */
-export async function fetchCourses(apiBaseUrl: string): Promise<Course[]> {
+/** Pobiera listę paczek z serwera marketplace. */
+export async function fetchPackages(apiBaseUrl: string): Promise<Package[]> {
 	const response = await requestUrl({
-		url: `${apiBaseUrl.replace(/\/+$/, '')}/courses`,
+		url: `${apiBaseUrl.replace(/\/+$/, '')}/packages`,
 		method: 'GET',
 		// tak samo jak w publishApi: chcemy zobaczyć treść błędu z serwera
 		throw: false,
@@ -45,10 +45,10 @@ export async function fetchCourses(apiBaseUrl: string): Promise<Course[]> {
 
 	const data: unknown = response.json;
 	if (!Array.isArray(data)) {
-		throw new Error('Serwer zwrócił coś innego niż listę kursów');
+		throw new Error('Serwer zwrócił coś innego niż listę paczek');
 	}
 
-	return data.map(toCourse);
+	return data.map(toPackage);
 }
 
 /** Serwer przy błędzie zwraca {"error": "..."} - wyciągamy sam komunikat. */
@@ -64,8 +64,8 @@ function extractError(text: string): string {
 	return text;
 }
 
-/** Zamienia surowy wiersz z bazy na bezpieczny obiekt Course. */
-function toCourse(raw: unknown): Course {
+/** Zamienia surowy wiersz z bazy na bezpieczny obiekt Package. */
+function toPackage(raw: unknown): Package {
 	const row = (raw ?? {}) as Record<string, unknown>;
 	return {
 		id: asText(row.id),

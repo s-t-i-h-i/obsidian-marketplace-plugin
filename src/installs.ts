@@ -15,38 +15,38 @@ const MAX_NAME_ATTEMPTS = 100;
 
 /** Wpis z archiwum, którego ścieżka przeszła już walidację. */
 interface PlannedFile {
-	/** Ścieżka względem folderu kursu, np. "obrazki/schemat.png". */
+	/** Ścieżka względem folderu paczki, np. "obrazki/schemat.png". */
 	path: string;
 	entry: JSZip.JSZipObject;
 }
 
 /**
- * Rozpakowuje archiwum kursu do nowego folderu w vaulcie.
+ * Rozpakowuje archiwum paczki do nowego folderu w vaulcie.
  *
  * Zwraca ścieżkę utworzonego folderu - wywołujący używa jej do komunikatu
  * i do otwarcia pobranej notatki.
  */
-export async function installCourse(
+export async function installPackage(
 	app: App,
 	archive: ArrayBuffer,
 	baseFolder: string,
-	courseTitle: string,
+	packageTitle: string,
 ): Promise<string> {
 	const zip = await JSZip.loadAsync(archive);
 
 	// Całe archiwum sprawdzamy, zanim zapiszemy pierwszy bajt. Walidacja to
-	// same operacje na stringach, a daje gwarancję "albo cały kurs, albo nic".
+	// same operacje na stringach, a daje gwarancję "albo cała paczka, albo nic".
 	const files = planFiles(zip);
 	if (files.length === 0) {
 		throw new Error('Archiwum nie zawiera żadnych plików');
 	}
 
-	const root = await createCourseFolder(app, baseFolder, courseTitle);
+	const root = await createPackageFolder(app, baseFolder, packageTitle);
 
 	try {
 		await writeFiles(app, root, files);
 	} catch (error) {
-		// pół kursu w vaulcie jest gorsze niż brak kursu
+		// pół paczki w vaulcie jest gorsze niż brak paczki
 		await rollback(app, root);
 		throw error;
 	}
@@ -58,7 +58,7 @@ export async function installCourse(
  * Zamienia wpisy archiwum na listę plików do zapisania.
  *
  * Rzuca wyjątkiem przy pierwszej podejrzanej ścieżce - świadomie przerywamy
- * całe archiwum zamiast po cichu pomijać pojedynczy wpis. Kurs ze ścieżką
+ * całe archiwum zamiast po cichu pomijać pojedynczy wpis. Paczka ze ścieżką
  * uciekającą poza folder docelowy to atak, a nie literówka autora.
  */
 function planFiles(zip: JSZip): PlannedFile[] {
@@ -76,7 +76,7 @@ function planFiles(zip: JSZip): PlannedFile[] {
 }
 
 /**
- * Sprawdza, czy ścieżka z archiwum zostanie wewnątrz folderu kursu.
+ * Sprawdza, czy ścieżka z archiwum zostanie wewnątrz folderu paczki.
  *
  * Jeden przebieg po segmentach łapie wszystkie warianty ucieczki naraz:
  * ".." wychodzi poziom wyżej, pusty segment oznacza wiodący ukośnik
@@ -99,22 +99,22 @@ function safeRelativePath(name: string): string {
 	return segments.join('/');
 }
 
-/** Tworzy pusty folder na kurs i zwraca jego ścieżkę. */
-async function createCourseFolder(
+/** Tworzy pusty folder na paczkę i zwraca jego ścieżkę. */
+async function createPackageFolder(
 	app: App,
 	baseFolder: string,
-	courseTitle: string,
+	packageTitle: string,
 ): Promise<string> {
-	// puste pole w ustawieniach nie może znaczyć "wysyp kurs do korzenia vaulta"
+	// puste pole w ustawieniach nie może znaczyć "wysyp paczkę do korzenia vaulta"
 	const base = normalizePath(baseFolder.trim() || DEFAULT_SETTINGS.downloadFolder);
 	assertInsideVault(base);
 
 	const folders = new Set<string>();
 	await ensureFolder(app, base, folders);
 
-	const name = toFolderName(courseTitle);
+	const name = toFolderName(packageTitle);
 	for (let attempt = 1; attempt <= MAX_NAME_ATTEMPTS; attempt++) {
-		// "Kurs", "Kurs 2", "Kurs 3"... - pobranie tego samego kursu drugi raz
+		// "Paczka", "Paczka 2", "Paczka 3"... - pobranie tej samej paczki drugi raz
 		// ma dać drugi folder, a nie błąd
 		const suffix = attempt === 1 ? '' : ` ${attempt}`;
 		const path = normalizePath(`${base}/${name}${suffix}`);
@@ -125,11 +125,11 @@ async function createCourseFolder(
 		}
 	}
 
-	throw new Error(`Nie znaleziono wolnej nazwy folderu dla "${courseTitle}"`);
+	throw new Error(`Nie znaleziono wolnej nazwy folderu dla "${packageTitle}"`);
 }
 
 /**
- * Robi z tytułu kursu nazwę folderu.
+ * Robi z tytułu paczki nazwę folderu.
  *
  * Tytuł wpisał człowiek w formularzu publikacji, więc może zawierać cokolwiek -
  * łącznie ze znakami, które rozwalają ścieżkę albo tworzą folder ukryty.
@@ -140,7 +140,7 @@ function toFolderName(title: string): string {
 		// wiodąca kropka ukrywa folder przed Obsidianem, końcowa psuje ścieżki na Windowsie
 		.replace(/^[.\s]+|[.\s]+$/g, '');
 
-	return name || 'kurs';
+	return name || 'paczka';
 }
 
 /** normalizePath() czyści ukośniki, ale zostawia ".." - a to wyprowadza poza vault. */

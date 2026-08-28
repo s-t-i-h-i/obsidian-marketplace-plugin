@@ -1,9 +1,9 @@
 import { ButtonComponent, Modal, Notice } from 'obsidian';
 import MarketplacePlugin from './main';
-import { Course, downloadCourseArchive, fetchCourses } from './coursesApi';
-import { installCourse } from './installs';
+import { Package, downloadPackageArchive, fetchPackages } from './packagesApi';
+import { installPackage } from './installs';
 
-/** Sprawdza konfigurację i otwiera bibliotekę kursów. */
+/** Sprawdza konfigurację i otwiera bibliotekę paczek. */
 export function openMarketplaceModal(plugin: MarketplacePlugin): void {
 	const apiBaseUrl = plugin.settings.apiBaseUrl.trim();
 	if (!apiBaseUrl) {
@@ -29,7 +29,7 @@ class MarketplaceModal extends Modal {
 	onOpen() {
 		const { contentEl } = this;
 		contentEl.empty();
-		contentEl.createEl('h2', { text: 'Biblioteka kursów' });
+		contentEl.createEl('h2', { text: 'Biblioteka paczek' });
 		// osobny kontener na treść: przerysowujemy tylko jego, nagłówek zostaje
 		this.bodyEl = contentEl.createDiv();
 
@@ -44,12 +44,12 @@ class MarketplaceModal extends Modal {
 		this.renderMessage('Ładowanie...');
 
 		try {
-			const courses = await fetchCourses(this.apiBaseUrl);
-			this.renderCourses(courses);
+			const packages = await fetchPackages(this.apiBaseUrl);
+			this.renderPackages(packages);
 		} catch (error) {
 			console.error(error);
 			const reason = error instanceof Error ? error.message : String(error);
-			this.renderError(`Nie udało się pobrać kursów: ${reason}`);
+			this.renderError(`Nie udało się pobrać paczek: ${reason}`);
 		}
 	}
 
@@ -68,56 +68,56 @@ class MarketplaceModal extends Modal {
 			.onClick(() => void this.load());
 	}
 
-	private renderCourses(courses: Course[]) {
-		if (courses.length === 0) {
+	private renderPackages(packages: Package[]) {
+		if (packages.length === 0) {
 			this.renderMessage('Biblioteka jest pusta.');
 			return;
 		}
 
 		this.bodyEl.empty();
 		const grid = this.bodyEl.createDiv({ cls: 'marketplace-grid' });
-		for (const course of courses) {
-			this.renderCourse(grid, course);
+		for (const pkg of packages) {
+			this.renderPackage(grid, pkg);
 		}
 	}
 
-	/** Jeden kurs = jeden kafelek, stylowany przez styles.css. */
-	private renderCourse(grid: HTMLElement, course: Course) {
-		const meta = [course.author, ...course.tags.map((tag) => `#${tag}`)]
+	/** Jedna paczka = jeden kafelek, stylowany przez styles.css. */
+	private renderPackage(grid: HTMLElement, pkg: Package) {
+		const meta = [pkg.author, ...pkg.tags.map((tag) => `#${tag}`)]
 			.filter((part) => part.length > 0)
 			.join(' · ');
 
 		const card = grid.createDiv({ cls: 'marketplace-card' });
-		card.createDiv({ cls: 'marketplace-card-title', text: course.title });
+		card.createDiv({ cls: 'marketplace-card-title', text: pkg.title });
 		if (meta) card.createDiv({ cls: 'marketplace-card-meta', text: meta });
-		if (course.description) {
-			card.createDiv({ cls: 'marketplace-card-desc', text: course.description });
+		if (pkg.description) {
+			card.createDiv({ cls: 'marketplace-card-desc', text: pkg.description });
 		}
 		// przycisk trzymamy w zmiennej, bo callback potrzebuje referencji do
 		// komponentu, którego łańcuch jeszcze nie zdążył zwrócić
 		const actions = card.createDiv({ cls: 'marketplace-card-actions' });
 		const button = new ButtonComponent(actions).setButtonText('Pobierz').setCta();
-		button.onClick(() => void this.download(course, button));
+		button.onClick(() => void this.download(pkg, button));
 	}
 
-	/** Pobiera archiwum kursu i rozpakowuje je do nowego folderu w vaulcie. */
-	private async download(course: Course, button: ButtonComponent) {
-		// blokada od razu: pobranie trwa, a trzy kliknięcia dałyby trzy kopie kursu
+	/** Pobiera archiwum paczki i rozpakowuje je do nowego folderu w vaulcie. */
+	private async download(pkg: Package, button: ButtonComponent) {
+		// blokada od razu: pobranie trwa, a trzy kliknięcia dałyby trzy kopie paczki
 		button.setDisabled(true);
 		button.setButtonText('Pobieranie...');
 
 		try {
-			const archive = await downloadCourseArchive(this.apiBaseUrl, course.id);
-			const folder = await installCourse(
+			const archive = await downloadPackageArchive(this.apiBaseUrl, pkg.id);
+			const folder = await installPackage(
 				this.app,
 				archive,
 				this.plugin.settings.downloadFolder,
-				course.title,
+				pkg.title,
 			);
 
 			new Notice(`Pobrano do: ${folder}`);
 			// przycisk zostaje zablokowany - drugie kliknięcie zrobiłoby kopię
-			// "Kurs 2", co niemal zawsze jest pomyłką, a nie zamiarem
+			// "Paczka 2", co niemal zawsze jest pomyłką, a nie zamiarem
 			button.setButtonText('Pobrano');
 		} catch (error) {
 			// konsola dostaje pełny stack trace, user jedno czytelne zdanie
