@@ -1,8 +1,8 @@
 import { ButtonComponent, Modal, Notice, Setting, TFile, TFolder } from 'obsidian';
 import MarketplacePlugin from './main';
 import { collectFiles, findBrokenLinks } from './files';
-import { publishFolder } from './publishApi';
-import { UnauthorizedError } from './api';
+import { publishFolder } from './api/publishApi';
+import { UnauthorizedError } from './api/api';
 
 type FieldKey = 'title' | 'description' | 'tags';
 

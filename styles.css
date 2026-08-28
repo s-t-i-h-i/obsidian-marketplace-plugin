@@ -44,3 +44,68 @@
 	color: var(--text-error);
 	margin-top: var(--size-2-2);
 }
+
+/* Kafelek prowadzi do szczegółów, więc musi wyglądać na klikalny. */
+.marketplace-card.mod-clickable {
+	cursor: pointer;
+}
+
+.marketplace-card.mod-clickable:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.marketplace-detail {
+	margin-top: var(--size-4-3);
+}
+
+.marketplace-detail-desc {
+	white-space: pre-wrap;
+	color: var(--text-muted);
+	margin-bottom: var(--size-4-2);
+}
+
+.marketplace-tags {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-2-2);
+	margin: var(--size-2-3) 0;
+}
+
+.marketplace-tag {
+	cursor: pointer;
+	padding: 0 var(--size-2-2);
+	border-radius: var(--radius-s);
+	background-color: var(--background-modifier-border);
+	font-size: var(--font-smaller);
+}
+
+.marketplace-tag:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+/* Drzewo bywa długie - własny scroll, żeby przyciski akcji nie uciekły poza modal. */
+.marketplace-tree {
+	max-height: 260px;
+	overflow-y: auto;
+	font-family: var(--font-monospace);
+	font-size: var(--font-smaller);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	padding: var(--size-2-3);
+}
+
+.marketplace-tree-row {
+	white-space: nowrap;
+	line-height: 1.6;
+}
+
+.marketplace-tree-icon {
+	margin-right: var(--size-2-2);
+}
+
+.marketplace-tree-count,
+.marketplace-tree-empty {
+	color: var(--text-muted);
+	font-size: var(--font-smaller);
+	margin-top: var(--size-2-2);
+}

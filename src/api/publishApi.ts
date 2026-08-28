@@ -1,7 +1,7 @@
 import { App, TFile, TFolder } from 'obsidian';
 import JSZip from 'jszip';
 import { apiRequest } from './api';
-import type { MarketplaceSettings } from './settings';
+import type { MarketplaceSettings } from '../settings';
 
 export interface PublishMetadata {
 	title: string;
@@ -22,18 +22,21 @@ export async function publishFolder(
 	metadata: PublishMetadata,
 	settings: MarketplaceSettings,
 ): Promise<void> {
-	const archive = await packFolder(app, folder, files);
-	await upload(archive, `${folder.name}.zip`, metadata, settings);
+	// ścieżka korzenia vaulta to "/", więc nie ma wtedy prefiksu do obcięcia
+	const prefix = folder.isRoot() ? '' : folder.path + '/';
+	// dokładnie te ścieżki trafiają do ZIP-a, więc podgląd na stronie nie skłamie
+	const structure = files.map((file) => file.path.slice(prefix.length));
+
+	const archive = await packFolder(app, files, prefix);
+	await upload(archive, `${folder.name}.zip`, metadata, structure, settings);
 }
 
 async function packFolder(
 	app: App,
-	folder: TFolder,
 	files: TFile[],
+	prefix: string,
 ): Promise<ArrayBuffer> {
 	const zip = new JSZip();
-	// ścieżka korzenia vaulta to "/", więc nie ma wtedy prefiksu do obcięcia
-	const prefix = folder.isRoot() ? '' : folder.path + '/';
 
 	for (const file of files) {
 		zip.file(file.path.slice(prefix.length), await app.vault.readBinary(file));
@@ -46,6 +49,7 @@ async function upload(
 	archive: ArrayBuffer,
 	filename: string,
 	metadata: PublishMetadata,
+	structure: string[],
 	settings: MarketplaceSettings,
 ): Promise<void> {
 	const boundary = randomBoundary();
@@ -55,6 +59,7 @@ async function upload(
 			title: metadata.title,
 			description: metadata.description,
 			tags: metadata.tags.join(','),
+			structure: JSON.stringify(structure),
 			// pole "author" znika z formularza - serwer bierze autora z tokenu
 		},
 		filename,

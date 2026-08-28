@@ -1,5 +1,5 @@
 import { apiRequest } from './api';
-import type { MarketplaceSettings } from './settings';
+import type { MarketplaceSettings } from '../settings';
 
 /** Paczka w postaci, jakiej oczekuje interfejs - pola zawsze istnieją i mają właściwy typ. */
 export interface Package {
@@ -12,6 +12,8 @@ export interface Package {
 	tags: string[];
 	filename: string;
 	createdAt: string;
+	/** Ścieżki względne plików w archiwum. Puste na liście - wypełnia je fetchPackage(). */
+	structure: string[];
 }
 
 export async function downloadPackageArchive(
@@ -29,6 +31,21 @@ export async function downloadPackageArchive(
 	}
 
 	return response.arrayBuffer;
+}
+
+/**
+ * Szczegóły jednej paczki, ze strukturą folderów.
+ * Lista celowo tego nie zwraca - przy setce paczek byłby to spory zbędny transfer.
+ */
+export async function fetchPackage(
+	settings: MarketplaceSettings,
+	id: string,
+): Promise<Package> {
+	const response = await apiRequest(settings, {
+		path: `/packages/${encodeURIComponent(id)}`,
+	});
+
+	return toPackage(response.json);
 }
 
 /** Pobiera listę paczek z serwera marketplace. */
@@ -68,7 +85,22 @@ function toPackage(raw: unknown): Package {
 		tags: toTags(row.tags),
 		filename: asText(row.filename),
 		createdAt: asText(row.created_at),
+		structure: toStructure(row.structure),
 	};
+}
+
+/** `structure` przychodzi jako JSON-owa tablica ścieżek w tekście. */
+function toStructure(value: unknown): string[] {
+	if (typeof value !== 'string' || !value) return [];
+
+	try {
+		const parsed: unknown = JSON.parse(value);
+		if (!Array.isArray(parsed)) return [];
+		return parsed.filter((entry): entry is string => typeof entry === 'string');
+	} catch {
+		// uszkodzony JSON to powód, żeby nie pokazać drzewa - nie żeby wywalić listę
+		return [];
+	}
 }
 
 /** Liczby z SQLite zamienia na tekst, wszystko inne (null, undefined) na pusty string. */
