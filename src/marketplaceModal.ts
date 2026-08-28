@@ -1,7 +1,8 @@
 import { ButtonComponent, Modal, Notice } from 'obsidian';
 import MarketplacePlugin from './main';
-import { Package, downloadPackageArchive, fetchPackages } from './packagesApi';
+import { Package, deletePackage, downloadPackageArchive, fetchPackages } from './packagesApi';
 import { installPackage } from './installs';
+import { UnauthorizedError } from './api';
 
 /** Sprawdza konfigurację i otwiera bibliotekę paczek. */
 export function openMarketplaceModal(plugin: MarketplacePlugin): void {
@@ -11,19 +12,17 @@ export function openMarketplaceModal(plugin: MarketplacePlugin): void {
 		return;
 	}
 
-	new MarketplaceModal(plugin, apiBaseUrl).open();
+	new MarketplaceModal(plugin).open();
 }
 
 class MarketplaceModal extends Modal {
 	private plugin: MarketplacePlugin;
-	private apiBaseUrl: string;
 	private bodyEl!: HTMLElement;
 
-	constructor(plugin: MarketplacePlugin, apiBaseUrl: string) {
+	constructor(plugin: MarketplacePlugin) {
 		super(plugin.app);
 		// super() zużywa plugin i go gubi, a ustawienia są potrzebne przy pobieraniu
 		this.plugin = plugin;
-		this.apiBaseUrl = apiBaseUrl;
 	}
 
 	onOpen() {
@@ -44,7 +43,7 @@ class MarketplaceModal extends Modal {
 		this.renderMessage('Ładowanie...');
 
 		try {
-			const packages = await fetchPackages(this.apiBaseUrl);
+			const packages = await fetchPackages(this.plugin.settings);
 			this.renderPackages(packages);
 		} catch (error) {
 			console.error(error);
@@ -98,6 +97,63 @@ class MarketplaceModal extends Modal {
 		const actions = card.createDiv({ cls: 'marketplace-card-actions' });
 		const button = new ButtonComponent(actions).setButtonText('Pobierz').setCta();
 		button.onClick(() => void this.download(pkg, button));
+
+		// Podpowiedź interfejsu, nie zabezpieczenie - właściciela sprawdza serwer.
+		// Paczki zastane mają puste authorId, więc nie pokażą przycisku nikomu.
+		if (pkg.authorId && pkg.authorId === this.plugin.settings.userId) {
+			this.renderDeleteButton(actions, pkg);
+		}
+	}
+
+	/**
+	 * Kasowanie jest nieodwracalne, a Obsidian nie ma wbudowanego okna potwierdzenia,
+	 * więc pytamy w miejscu: pierwsze kliknięcie uzbraja, drugie kasuje.
+	 */
+	private renderDeleteButton(actions: HTMLElement, pkg: Package) {
+		const button = new ButtonComponent(actions).setButtonText('Usuń');
+		let armed = false;
+
+		button.onClick(() => {
+			if (armed) {
+				void this.remove(pkg, button);
+				return;
+			}
+
+			armed = true;
+			button.setWarning().setButtonText('Na pewno?');
+
+			// Uzbrojony na zawsze przycisk kasowania to pułapka, więc się rozbraja.
+			window.setTimeout(() => {
+				if (!button.buttonEl.isConnected) return;
+				armed = false;
+				button.buttonEl.removeClass('mod-warning');
+				button.setButtonText('Usuń');
+			}, 4000);
+		});
+	}
+
+	private async remove(pkg: Package, button: ButtonComponent) {
+		button.setDisabled(true);
+		button.setButtonText('Usuwanie...');
+
+		try {
+			await deletePackage(this.plugin.settings, pkg.id);
+			new Notice(`Usunięto: ${pkg.title}`);
+			// przeładowanie zamiast łatania listy na miejscu - widok ma pokazywać
+			// stan serwera, a nie nasze wyobrażenie o nim
+			void this.load();
+		} catch (error) {
+			console.error(error);
+			new Notice(
+				error instanceof UnauthorizedError
+					? 'Serwer odrzucił token. Sprawdź ustawienia pluginu.'
+					: 'Błąd usuwania: ' +
+							(error instanceof Error ? error.message : String(error)),
+			);
+			button.setDisabled(false);
+			button.buttonEl.removeClass('mod-warning');
+			button.setButtonText('Usuń');
+		}
 	}
 
 	/** Pobiera archiwum paczki i rozpakowuje je do nowego folderu w vaulcie. */
@@ -107,7 +163,7 @@ class MarketplaceModal extends Modal {
 		button.setButtonText('Pobieranie...');
 
 		try {
-			const archive = await downloadPackageArchive(this.apiBaseUrl, pkg.id);
+			const archive = await downloadPackageArchive(this.plugin.settings, pkg.id);
 			const folder = await installPackage(
 				this.app,
 				archive,

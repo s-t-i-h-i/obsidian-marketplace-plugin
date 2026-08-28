@@ -59,6 +59,7 @@ menu kontekstowe folderu                  komenda "Open marketplace"
   publishModal.ts   formularz               marketplaceModal.ts   siatka kafelków
   files.ts          zbiórka + linki         packagesApi.ts        GET /packages
   publishApi.ts     ZIP + multipart         packagesApi.ts        GET /download/:id
+       (oba przechodzą przez api.ts — Authorization + obsługa błędów)
        |                                    installs.ts           walidacja + zapis
        v                                         ^
    POST /publish  ------>  Worker  ------>  GET /download/:id
@@ -68,10 +69,12 @@ menu kontekstowe folderu                  komenda "Open marketplace"
 | Moduł | Odpowiedzialność |
 |---|---|
 | [src/main.ts](src/main.ts) | Wyłącznie cykl życia: komenda `open-marketplace`, pozycja **Publikuj** w menu kontekstowym folderu, rejestracja zakładki ustawień. Trzymaj ten plik mały. |
-| [src/settings.ts](src/settings.ts) | `MarketplaceSettings` = `apiBaseUrl`, `defaultAuthor`, `downloadFolder`. Wartości puste są dozwolone — walidacja dzieje się w miejscu użycia, nie w `onChange`. |
+| [src/settings.ts](src/settings.ts) | `MarketplaceSettings` = `apiBaseUrl`, `token`, `username`, `userId`, `downloadFolder`. Wartości puste są dozwolone — walidacja dzieje się w miejscu użycia, nie w `onChange`. Zakładka sama się nie przerysowuje: po rejestracji i wylogowaniu trzeba zawołać `this.display()`. |
+| [src/api.ts](src/api.ts) | Jedyna droga do serwera. Skleja URL, wstrzykuje `Authorization`, rozpakowuje `{"error"}` i rozróżnia `UnauthorizedError` od `ApiError`. Zwraca surową odpowiedź — treść czyta wywołujący. |
+| [src/accountApi.ts](src/accountApi.ts) | `registerAccount()`, `fetchMe()`, `revokeToken()`. |
 | [src/files.ts](src/files.ts) | `collectFiles()` schodzi rekurencyjnie po folderze, filtruje po `ALLOWED_EXTENSIONS`, pomija katalogi zaczynające się od kropki. `findBrokenLinks()` czyta `app.metadataCache.resolvedLinks` i wykrywa linki wychodzące poza publikowany zestaw. |
-| [src/publishApi.ts](src/publishApi.ts) | Pakuje pliki JSZipem i ręcznie buduje ciało `multipart/form-data`. |
-| [src/packagesApi.ts](src/packagesApi.ts) | `fetchPackages()` (JSON) i `downloadPackageArchive()` (binarnie). Surowe wiersze z D1 przechodzą przez `toPackage()`, który wymusza typy — pola z bazy bywają `null`. |
+| [src/publishApi.ts](src/publishApi.ts) | Pakuje pliki JSZipem i ręcznie buduje ciało `multipart/form-data`. Autor **nie** jest polem formularza — bierze się z tokenu po stronie serwera. |
+| [src/packagesApi.ts](src/packagesApi.ts) | `fetchPackages()` (JSON), `downloadPackageArchive()` (binarnie) i `deletePackage()`. Surowe wiersze z D1 przechodzą przez `toPackage()`, który wymusza typy — pola z bazy bywają `null`. |
 | [src/installs.ts](src/installs.ts) | Rozpakowanie do vaulta. Najbardziej wrażliwy moduł, opis niżej. |
 | [docs/publikowanie.md](docs/publikowanie.md) | Długi polski przewodnik po przepływie publikowania, od kliknięcia do żądania HTTP. |
 
@@ -81,15 +84,30 @@ menu kontekstowe folderu                  komenda "Open marketplace"
 
 Archiwum ze ścieżką uciekającą poza folder docelowy jest **odrzucane w całości**, nie „po cichu pomijane". To atak, a nie literówka autora.
 
+### Uwierzytelnianie
+
+Personal access tokens, nie OAuth. Serwer losuje token (`omp_` + 64 hex, 32 bajty z CSPRNG),
+oddaje go **raz** przy rejestracji i trzyma wyłącznie `SHA-256`. Autor paczki bierze się
+z tokenu, nigdy z formularza — to zamyka podszywanie się, które było możliwe wcześniej.
+Ban to flaga `is_banned` sprawdzana w `authenticate()`, więc obejmuje każdy endpoint z automatu.
+
+Kod: `src/auth.ts` + `src/http.ts` w repo backendu, [src/api.ts](src/api.ts) w tym repo.
+
 ## Kontrakt API
 
 | Metoda | Ścieżka | Ciało / odpowiedź |
 |---|---|---|
-| `GET` | `/packages` | JSON: `[{id, title, description, author, tags, filename, created_at}]`, `tags` jako `"a,b,c"` |
-| `POST` | `/publish` | `multipart/form-data`: `title`, `description`, `author`, `tags`, `file` (ZIP). Limit 50 MB, tylko `.zip`. Zwraca `201 {id, filename}` |
-| `GET` | `/download/:id` | ciało ZIP-a, `Content-Type: application/zip` |
+| `GET` | `/packages` | publiczne. JSON: `[{id, title, description, author, author_id, tags, filename, created_at}]`, `tags` jako `"a,b,c"` |
+| `GET` | `/download/:id` | publiczne. Ciało ZIP-a, `Content-Type: application/zip` |
+| `POST` | `/register` | publiczne, limit 3/60 s na IP. `{username}` (3-32 znaki, `[a-zA-Z0-9_-]`). Zwraca `201 {user_id, username, token}` — **token pokazywany jest raz** |
+| `GET` | `/me` | 🔒 zwraca `{user_id, username}` |
+| `DELETE` | `/tokens` | 🔒 unieważnia bieżący token |
+| `POST` | `/publish` | 🔒 `multipart/form-data`: `title`, `description`, `tags`, `file` (ZIP). Limit 50 MB i 10 paczek/dobę. Autor bierze się z tokenu, przysłane pole `author` jest **ignorowane**. Zwraca `201 {id, filename, author}` |
+| `DELETE` | `/packages/:id` | 🔒 tylko właściciel; cudza paczka → `403` |
 
-Błędy zawsze jako `{"error": "..."}` — po stronie pluginu rozpakowuje to `extractError()` w `packagesApi.ts`.
+🔒 = wymaga `Authorization: Bearer omp_<64 hex>`. Brak/zły token → `401`.
+
+Błędy zawsze jako `{"error": "..."}` — po stronie pluginu rozpakowuje to `extractError()` w `api.ts`.
 
 Backend: tabela D1 `packages` (binding `DB`, baza `obsidian-marketplace`), bucket R2 `obsidian-marketaplce-bucket` (binding `BUCKET`). Literówka w nazwie bucketa jest w prawdziwym zasobie Cloudflare — **nie poprawiaj jej**.
 
@@ -113,9 +131,21 @@ Rzeczy, które kosztowały czas i nie widać ich z samego kodu.
 
 8. **Migracja D1 idzie przed `wrangler deploy`**, nie po. Nowy kod pyta o tabelę, której jeszcze nie ma.
 
+9. **Granica multipart musi być losowa.** Wartości pól wstawiamy do ciała surowo (escapowany jest tylko `filename`), więc przy granicy z `Date.now()` wystarczał wielolinijkowy opis, żeby domknąć część i dokleić własne pola. `randomBoundary()` w `publishApi.ts` łata to u źródła — nie zastępuj go niczym przewidywalnym i nie „napraw" tego okrajaniem opisu.
+
+10. **Token idzie nagłówkiem, nigdy polem formularza** — z tego samego powodu co wyżej.
+
+11. **`created_at` to TEKST ISO-8601, nie liczba.** Porównanie okna czasowego z `Date.now()` nie rzuca błędu, tylko cicho nigdy nie trafia i limit przestaje istnieć. Zawsze `new Date(...).toISOString()`.
+
+12. **Nie deklaruj `interface Env` w `src/index.ts`.** Lokalna deklaracja przesłania typ generowany z bindingów przez `wrangler types` i każdy nowy binding trzeba by dopisywać ręcznie. `Env` jest globalny.
+
+13. **Usunięcie użytkownika blokuje FK**, dopóki ma paczki (`packages.author_id` bez `ON DELETE`). To celowe — banuje się flagą, nie kasowaniem. Kaskada na `tokens` odpali się dopiero, gdy sam `DELETE` przejdzie.
+
 ## Testowanie bez Obsidiana
 
-Logikę `installs.ts` i `packagesApi.ts` można sprawdzić headlessowo: podmienia się moduł `obsidian` na atrapę, a `app.vault` na mapę `ścieżka → zawartość`. Atrapa musi eksportować `normalizePath` oraz klasy używane jako wartości (`Modal`, `Setting`, `PluginSettingTab`, `ButtonComponent`, `Notice`, `Plugin`). `requestUrl` da się odwzorować na node'owym `fetch`, co pozwala testować cały łańcuch przeciwko działającemu `wrangler dev`.
+Logikę `installs.ts` i `packagesApi.ts` można sprawdzić headlessowo: podmienia się moduł `obsidian` na atrapę, a `app.vault` na mapę `ścieżka → zawartość`. Atrapa musi eksportować `normalizePath` oraz klasy używane jako wartości (`Modal`, `Setting`, `PluginSettingTab`, `ButtonComponent`, `Notice`, `Plugin`, `App`, `TFile`, `TFolder`).
+
+**Atrapa `requestUrl` musi przekazywać `headers`.** Jeśli tego nie zrobi, testy uwierzytelniania po cichu pojadą bez tokenu, a przypadki „ma być 401" przejdą z zupełnie złego powodu. Warto to zaasertować wprost: zarejestruj konto i sprawdź, że `/me` zwraca 200. `requestUrl` da się odwzorować na node'owym `fetch`, co pozwala testować cały łańcuch przeciwko działającemu `wrangler dev`.
 
 ```bash
 npx esbuild harness.ts --bundle --platform=node --format=esm --outfile=harness.mjs \

@@ -1,10 +1,11 @@
-import { App, TFile, TFolder, requestUrl } from 'obsidian';
+import { App, TFile, TFolder } from 'obsidian';
 import JSZip from 'jszip';
+import { apiRequest } from './api';
+import type { MarketplaceSettings } from './settings';
 
 export interface PublishMetadata {
 	title: string;
 	description: string;
-	author: string;
 	tags: string[];
 }
 
@@ -19,10 +20,10 @@ export async function publishFolder(
 	folder: TFolder,
 	files: TFile[],
 	metadata: PublishMetadata,
-	apiBaseUrl: string,
+	settings: MarketplaceSettings,
 ): Promise<void> {
 	const archive = await packFolder(app, folder, files);
-	await upload(archive, `${folder.name}.zip`, metadata, apiBaseUrl);
+	await upload(archive, `${folder.name}.zip`, metadata, settings);
 }
 
 async function packFolder(
@@ -45,33 +46,47 @@ async function upload(
 	archive: ArrayBuffer,
 	filename: string,
 	metadata: PublishMetadata,
-	apiBaseUrl: string,
+	settings: MarketplaceSettings,
 ): Promise<void> {
-	const boundary = `----ObsidianBoundary${Date.now().toString(16)}`;
+	const boundary = randomBoundary();
 	const body = buildMultipartBody(
 		boundary,
 		{
 			title: metadata.title,
 			description: metadata.description,
-			author: metadata.author,
 			tags: metadata.tags.join(','),
+			// pole "author" znika z formularza - serwer bierze autora z tokenu
 		},
 		filename,
 		archive,
 	);
 
-	const response = await requestUrl({
-		url: `${apiBaseUrl.replace(/\/+$/, '')}/publish`,
+	// Token idzie nagłówkiem, a nie polem formularza: wartości pól trafiają do ciała
+	// multipart bez cudzysłowów i bez escapowania, więc sekret nie ma czego tam szukać.
+	await apiRequest(settings, {
+		path: '/publish',
 		method: 'POST',
 		contentType: `multipart/form-data; boundary=${boundary}`,
 		body,
-		// domyślnie requestUrl rzuca wyjątkiem i gubi treść odpowiedzi serwera
-		throw: false,
+		auth: true,
 	});
+}
 
-	if (response.status < 200 || response.status >= 300) {
-		throw new Error(`${response.status}: ${response.text}`);
-	}
+/**
+ * Granica musi być nieodgadywalna.
+ *
+ * Wcześniej brała się z Date.now(), a wartości pól wstawiamy do ciała surowo -
+ * wystarczyło więc, żeby opis paczki zawierał linię `--<granica>`, i dało się
+ * domknąć część oraz dokleić własne pola. Losowa granica zamyka to u źródła,
+ * bez okaleczania treści: opis dalej może być wielolinijkowy.
+ */
+function randomBoundary(): string {
+	const bytes = new Uint8Array(16);
+	crypto.getRandomValues(bytes);
+	const hex = Array.from(bytes)
+		.map((byte) => byte.toString(16).padStart(2, '0'))
+		.join('');
+	return `----ObsidianBoundary${hex}`;
 }
 
 /** requestUrl() nie przyjmuje FormData, więc ciało multipart budujemy ręcznie. */

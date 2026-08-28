@@ -2,18 +2,30 @@ import { ButtonComponent, Modal, Notice, Setting, TFile, TFolder } from 'obsidia
 import MarketplacePlugin from './main';
 import { collectFiles, findBrokenLinks } from './files';
 import { publishFolder } from './publishApi';
+import { UnauthorizedError } from './api';
 
-type FieldKey = 'title' | 'description' | 'author' | 'tags';
+type FieldKey = 'title' | 'description' | 'tags';
 
 const FIELDS: { key: FieldKey; name: string; desc?: string; multiline?: boolean }[] = [
 	{ key: 'title', name: 'Tytuł' },
 	{ key: 'description', name: 'Opis', multiline: true },
-	{ key: 'author', name: 'Autor' },
 	{ key: 'tags', name: 'Tagi', desc: 'Oddzielone przecinkami' },
 ];
 
-/** Sprawdza folder i otwiera formularz publikacji tylko gdy nie ma uszkodzonych linków. */
+/** Sprawdza konfigurację i folder, i otwiera formularz tylko gdy publikacja ma szansę się udać. */
 export function openPublishModal(plugin: MarketplacePlugin, folder: TFolder): void {
+	// Bramki idą przed zbieraniem plików: kazanie użytkownikowi wypełnić formularz,
+	// żeby dopiero potem powiedzieć mu "zaloguj się", to zła kolejność - a przy okazji
+	// nie ma po co przechodzić drzewa folderów.
+	if (!plugin.settings.apiBaseUrl.trim()) {
+		new Notice('Ustaw adres API w ustawieniach pluginu');
+		return;
+	}
+	if (!plugin.settings.token.trim()) {
+		new Notice('Zaloguj się w ustawieniach pluginu, żeby publikować');
+		return;
+	}
+
 	const files = collectFiles(folder);
 	if (files.length === 0) {
 		new Notice('Brak plików do opublikowania');
@@ -48,7 +60,6 @@ class PublishModal extends Modal {
 		this.values = {
 			title: folder.name,
 			description: '',
-			author: plugin.settings.defaultAuthor,
 			tags: '',
 		};
 	}
@@ -82,20 +93,13 @@ class PublishModal extends Modal {
 
 	private async publish(button: ButtonComponent) {
 		const title = this.values.title.trim();
-		const author = this.values.author.trim();
-		const apiBaseUrl = this.plugin.settings.apiBaseUrl.trim();
 
-		if (!title || !author) {
-			new Notice('Tytuł i autor są wymagane');
-			return;
-		}
-		if (!apiBaseUrl) {
-			new Notice('Ustaw adres API w ustawieniach pluginu');
+		if (!title) {
+			new Notice('Tytuł jest wymagany');
 			return;
 		}
 
-		// setDisabled() wymaga Obsidian 1.2.3, buttonEl działa na każdej wersji
-		button.buttonEl.disabled = true;
+		button.setDisabled(true);
 		button.setButtonText('Publikowanie...');
 
 		try {
@@ -105,25 +109,28 @@ class PublishModal extends Modal {
 				this.files,
 				{
 					title,
-					author,
 					description: this.values.description.trim(),
 					tags: this.values.tags
 						.split(',')
 						.map((tag) => tag.trim())
 						.filter((tag) => tag.length > 0),
 				},
-				apiBaseUrl,
+				this.plugin.settings,
 			);
 
 			new Notice('Opublikowano');
 			this.close();
 		} catch (error) {
 			console.error(error);
+			// Token mógł zostać unieważniony między otwarciem modala a kliknięciem,
+			// więc podpowiadamy ustawienia zamiast pokazywać gołe "401".
 			new Notice(
-				'Błąd publikacji: ' +
-					(error instanceof Error ? error.message : String(error)),
+				error instanceof UnauthorizedError
+					? 'Serwer odrzucił token. Sprawdź ustawienia pluginu.'
+					: 'Błąd publikacji: ' +
+							(error instanceof Error ? error.message : String(error)),
 			);
-			button.buttonEl.disabled = false;
+			button.setDisabled(false);
 			button.setButtonText('Publikuj');
 		}
 	}

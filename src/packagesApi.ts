@@ -1,4 +1,5 @@
-import { requestUrl } from 'obsidian';
+import { apiRequest } from './api';
+import type { MarketplaceSettings } from './settings';
 
 /** Paczka w postaci, jakiej oczekuje interfejs - pola zawsze istnieją i mają właściwy typ. */
 export interface Package {
@@ -6,22 +7,23 @@ export interface Package {
 	title: string;
 	description: string;
 	author: string;
+	/** Właściciel wg serwera. Puste dla paczek sprzed wprowadzenia kont. */
+	authorId: string;
 	tags: string[];
 	filename: string;
 	createdAt: string;
 }
 
-export async function downloadPackageArchive(apiBaseUrl: string, id: string): Promise<ArrayBuffer>{
-	const response = await requestUrl({
-		url: `${apiBaseUrl.replace(/\/+$/, '')}/download/${encodeURIComponent(id)}`,
-		method: 'GET',
-		throw: false,
-	})
+export async function downloadPackageArchive(
+	settings: MarketplaceSettings,
+	id: string,
+): Promise<ArrayBuffer> {
+	const response = await apiRequest(settings, {
+		path: `/download/${encodeURIComponent(id)}`,
+	});
 
-	if (response.status < 200 || response.status >= 300) {
-		throw new Error(`${response.status}: ${extractError(response.text)}`);
-	}
-	// add byteLength check to ensure the response is not empty
+	// Nie sięgamy tu po response.json - to getter robiący JSON.parse, a archiwum
+	// zaczyna się od "PK", więc rzuciłby SyntaxError.
 	if (!response.arrayBuffer || response.arrayBuffer.byteLength === 0) {
 		throw new Error('Pobrany plik jest pusty');
 	}
@@ -29,19 +31,9 @@ export async function downloadPackageArchive(apiBaseUrl: string, id: string): Pr
 	return response.arrayBuffer;
 }
 
-
 /** Pobiera listę paczek z serwera marketplace. */
-export async function fetchPackages(apiBaseUrl: string): Promise<Package[]> {
-	const response = await requestUrl({
-		url: `${apiBaseUrl.replace(/\/+$/, '')}/packages`,
-		method: 'GET',
-		// tak samo jak w publishApi: chcemy zobaczyć treść błędu z serwera
-		throw: false,
-	});
-
-	if (response.status < 200 || response.status >= 300) {
-		throw new Error(`${response.status}: ${extractError(response.text)}`);
-	}
+export async function fetchPackages(settings: MarketplaceSettings): Promise<Package[]> {
+	const response = await apiRequest(settings, { path: '/packages' });
 
 	const data: unknown = response.json;
 	if (!Array.isArray(data)) {
@@ -51,17 +43,16 @@ export async function fetchPackages(apiBaseUrl: string): Promise<Package[]> {
 	return data.map(toPackage);
 }
 
-/** Serwer przy błędzie zwraca {"error": "..."} - wyciągamy sam komunikat. */
-function extractError(text: string): string {
-	try {
-		const parsed: unknown = JSON.parse(text);
-		if (parsed && typeof parsed === 'object' && 'error' in parsed) {
-			return String(parsed.error);
-		}
-	} catch {
-		// nie JSON - pokażemy surową treść
-	}
-	return text;
+/** Usuwa własną paczkę. Właściciela i tak weryfikuje serwer. */
+export async function deletePackage(
+	settings: MarketplaceSettings,
+	id: string,
+): Promise<void> {
+	await apiRequest(settings, {
+		path: `/packages/${encodeURIComponent(id)}`,
+		method: 'DELETE',
+		auth: true,
+	});
 }
 
 /** Zamienia surowy wiersz z bazy na bezpieczny obiekt Package. */
@@ -72,6 +63,8 @@ function toPackage(raw: unknown): Package {
 		title: asText(row.title) || '(bez tytułu)',
 		description: asText(row.description),
 		author: asText(row.author),
+		// paczki zastane mają author_id = null, a asText() robi z tego pusty string
+		authorId: asText(row.author_id),
 		tags: toTags(row.tags),
 		filename: asText(row.filename),
 		createdAt: asText(row.created_at),
