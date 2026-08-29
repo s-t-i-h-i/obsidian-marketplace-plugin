@@ -1,7 +1,7 @@
 {
-	"name": "obsidian-sample-plugin",
+	"name": "notes-hub-plugin",
 	"version": "0.1.0",
-	"description": "This is a sample plugin for Obsidian (https://obsidian.md)",
+	"description": "Browse, download, and publish knowledge packages shared by the community.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
