@@ -4,6 +4,7 @@ import { collectFiles, findBrokenLinks, findNameProblems, type BrokenLink } from
 import { publishFolder } from './api/publishApi';
 import { UnauthorizedError } from './api/api';
 import { isScannable, scanContent, type Finding } from './scan';
+import { MAX_PUBLISH_BYTES } from './constants';
 import { formatBytes } from './installs';
 import { renderFindings, renderConfirmRow } from './review';
 
@@ -88,9 +89,15 @@ class PublishModal extends Modal {
 
 		// File count and size up front: running "Publish" on the vault root
 		// would send everything, and without this the author wouldn't notice.
+		// The size is the uncompressed sum, so it can only hint at the limit —
+		// the real check runs on the finished archive in publishApi.
 		this.bodyEl.createDiv({
 			cls: 'marketplace-detail-desc',
-			text: `To be sent: ${this.files.length} files, ${formatBytes(bytes)}.`,
+			text:
+				`To be sent: ${this.files.length} files, ${formatBytes(bytes)}.` +
+				(bytes > MAX_PUBLISH_BYTES
+					? ` That is already over the ${formatBytes(MAX_PUBLISH_BYTES)} limit before compression, so publishing will probably fail.`
+					: ''),
 		});
 
 		// A hard block, not a warning: installPackage() rejects the whole

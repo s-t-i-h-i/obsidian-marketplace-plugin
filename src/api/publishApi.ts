@@ -1,6 +1,8 @@
 import { App, TFile, TFolder } from 'obsidian';
 import JSZip from 'jszip';
 import { apiRequest } from './api';
+import { MAX_PUBLISH_BYTES } from '../constants';
+import { formatBytes } from '../installs';
 import type { MarketplaceSettings } from '../settings';
 
 export interface PublishMetadata {
@@ -28,6 +30,17 @@ export async function publishFolder(
 	const structure = files.map((file) => file.path.slice(prefix.length));
 
 	const archive = await packFolder(app, files, prefix);
+
+	// The only point where the real compressed size is known — the review
+	// screen only has the uncompressed sum, which says little about how the
+	// archive will end up. Without this the server's 413 arrives after the
+	// whole upload.
+	if (archive.byteLength > MAX_PUBLISH_BYTES) {
+		throw new Error(
+			`The package is ${formatBytes(archive.byteLength)}, the limit is ${formatBytes(MAX_PUBLISH_BYTES)}`,
+		);
+	}
+
 	await upload(archive, `${folder.name}.zip`, metadata, structure, settings);
 }
 

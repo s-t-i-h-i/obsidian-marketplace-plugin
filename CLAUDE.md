@@ -113,18 +113,25 @@ Kod: `src/auth.ts` + `src/http.ts` w repo backendu, [src/api/api.ts](src/api/api
 
 | Metoda | Ścieżka | Ciało / odpowiedź |
 |---|---|---|
-| `GET` | `/packages` | publiczne. JSON: `[{id, title, description, author, author_id, tags, filename, created_at}]`, `tags` jako `"a,b,c"` |
-| `GET` | `/packages/:id` | publiczne. Jedna paczka **ze `structure`** (JSON-owa tablica ścieżek). Lista celowo tego pola nie niesie |
-| `GET` | `/download/:id` | publiczne. Ciało ZIP-a, `Content-Type: application/zip` |
-| `POST` | `/register` | publiczne, limit 3/60 s na IP. `{username}` (3-32 znaki, `[a-zA-Z0-9_-]`). Zwraca `201 {user_id, username, token}` — **token pokazywany jest raz** |
+| `GET` | `/packages` | publiczne. JSON: `[{id, title, description, author, author_id, tags, filename, created_at}]`, `tags` jako `"a,b,c"`. Paczki zbanowanych autorów są odfiltrowane |
+| `GET` | `/packages/:id` | publiczne. Jedna paczka **ze `structure`** (JSON-owa tablica ścieżek). Lista celowo tego pola nie niesie. Paczka zbanowanego autora → `404`, tak samo jak nieistniejąca |
+| `GET` | `/download/:id` | publiczne. Ciało ZIP-a, `Content-Type: application/zip`. `503` przy wyłączonej fladze `download`, `404` dla zbanowanego autora |
+| `POST` | `/register` | publiczne, limit 3/60 s na IP. `{username}` (3-32 znaki, `[a-zA-Z0-9_-]`). Zwraca `201 {user_id, username, token}` — **token pokazywany jest raz**. `503` przy wyłączonej fladze `register` |
 | `GET` | `/me` | 🔒 zwraca `{user_id, username, tokens}` — `tokens` to liczba tokenów konta |
 | `POST` | `/tokens` | 🔒 wydaje **dodatkowy** token (`{label}`), max 10 na konto. Zwraca `201 {token}` |
 | `DELETE` | `/tokens` | 🔒 unieważnia bieżący token |
 | `DELETE` | `/account` | 🔒 kasuje konto, jego tokeny i **wszystkie jego paczki** (D1 + R2). Zwraca `{ok, deleted_packages}` |
-| `POST` | `/publish` | 🔒 `multipart/form-data`: `title` (≤200), `description` (≤5000), `tags` (≤200), `file` (ZIP). Limit 50 MB i 10 publikacji/dobę. Autor bierze się z tokenu; pola `author` **i `structure`** są **ignorowane** — strukturę worker czyta z samego archiwum. Zwraca `201 {id, filename, author}`, `413` przy przekroczeniu rozmiaru |
+| `POST` | `/publish` | 🔒 `multipart/form-data`: `title` (≤200), `description` (≤5000), `tags` (≤200), `file` (ZIP). Limit 50 MB i 10 publikacji/dobę. Autor bierze się z tokenu; pola `author` **i `structure`** są **ignorowane** — strukturę worker czyta z samego archiwum. Zwraca `201 {id, filename, author}`, `413` przy przekroczeniu rozmiaru, `503` przy wyłączonej fladze `publish` albo po przekroczeniu globalnego sufitu (dobowego lub całkowitego) |
 | `DELETE` | `/packages/:id` | 🔒 tylko właściciel; cudza paczka → `403` |
+| `GET` | `/admin/flags` | 🔐 lista przełączników: `[{name, enabled, updated_at}]` |
+| `POST` | `/admin/flags/:name` | 🔐 `{enabled: bool}` dla `publish`/`register`/`download`. Inna nazwa albo złe ciało → `400` |
+| `POST` | `/admin/ban/:id` | 🔐 ustawia `is_banned`. Zwraca `{ok, user_id, is_banned}`, nieznane konto → `404` |
+| `POST` | `/admin/unban/:id` | 🔐 to samo w drugą stronę — ban jest w pełni odwracalny, nic nie jest kasowane |
+| `DELETE` | `/admin/packages/:id` | 🔐 kasuje dowolną paczkę, bez sprawdzania właściciela. Jedyna droga do zastanych paczek z `author_id = NULL` |
 
 🔒 = wymaga `Authorization: Bearer omp_<64 hex>`. Brak/zły token → `401`.
+🔐 = wymaga `X-Admin-Token: <ADMIN_TOKEN>` (sekret workera, `wrangler secret put`; lokalnie `.dev.vars`).
+Brak/zły sekret → `401`. Nagłówek celowo **nie** jest w `Access-Control-Allow-Headers` — te trasy są do curla, nie do przeglądarki.
 
 Błędy zawsze jako `{"error": "..."}` — po stronie pluginu rozpakowuje to `extractError()` w `api/api.ts`.
 Cały `fetch()` workera stoi w `try/catch`, więc nawet nieprzewidziany wyjątek wraca jako JSON **z nagłówkami CORS**,
@@ -135,7 +142,9 @@ sygnatura `PK`, brak zip64 i szyfrowania, ≤2000 wpisów, ≤200 MB po rozpakow
 ścieżki względne bez `..`, backslashy, znaków sterujących i przesterowania kierunku tekstu, bez duplikatów.
 Ta sama lista kontrolna stoi po stronie wtyczki w `installs.ts` — serwer i klient mogą być wdrożone rozdzielnie.
 
-Backend: tabela D1 `packages` (binding `DB`, baza `obsidian-marketplace`), tabela `publish_events` (dobowy limit publikacji), bucket R2 `obsidian-marketaplce-bucket` (binding `BUCKET`). Literówka w nazwie bucketa jest w prawdziwym zasobie Cloudflare — **nie poprawiaj jej**.
+Backend: tabela D1 `packages` (binding `DB`, baza `obsidian-marketplace`), tabela `publish_events` (dobowy limit publikacji), tabela `flags` (wyłączniki `publish`/`register`/`download`), bucket R2 `obsidian-marketaplce-bucket` (binding `BUCKET`). Literówka w nazwie bucketa jest w prawdziwym zasobie Cloudflare — **nie poprawiaj jej**.
+
+Rozmiar archiwum liczony jest w dwóch miejscach naraz: `packages.size_bytes` (sufit całkowity, 10 GB) i `publish_events.size_bytes` (sufit dobowy, 2 GB). Wtyczka sprawdza ten sam limit 50 MB u siebie, na gotowym archiwum w `publishApi.ts`, żeby nie wysyłać paczki skazanej na `413`.
 
 ## Miny
 
@@ -186,6 +195,16 @@ Rzeczy, które kosztowały czas i nie widać ich z samego kodu.
 22. **Rozszerzenia trzeba filtrować w OBIE strony.** Publikowanie brało tylko `ALLOWED_EXTENSIONS`, ale instalacja zapisywała z archiwum cokolwiek — `.js`, `.exe`, pliki bez rozszerzenia i dotfile'y niewidoczne w panelu plików. Asymetria „wolno mniej wysłać, niż wolno przyjąć" jest zawsze błędem, nawet gdy oba końce pisze ta sama osoba.
 
 23. **Adres API nie jest ustawieniem — wybiera go build.** Dopóki był polem tekstowym, był wektorem phishingu na jedno wklejenie: token leci nagłówkiem pod ten adres, więc „ustaw adres na …, żeby dostać paczkę X" oddawało konto. Dziś `esbuild.config.mjs` podstawia `__API_BASE_URL__` przez `define` (localhost w `npm run dev`, produkcyjny worker w `npm run build`, `MARKETPLACE_API_URL` ponad jednym i drugim), a `src/constants.ts` wystawia to jako `API_BASE_URL`. Kontrola adresu stoi teraz w **dwóch** miejscach i to jest świadome: `assertSafeApiUrl()` w `esbuild.config.mjs` wywala build na złym adresie, bliźniacza funkcja w `api/api.ts` zostaje jako ostatnia bramka i jako normalizacja końcowego ukośnika. Zmieniając warunki, zmień oba — esbuild nie widzi modułów TS-a. Deklaracja `declare const __API_BASE_URL__` siedzi w `constants.ts`, więc sięgnięcie po tę stałą gdziekolwiek indziej nie przejdzie przez `tsc`.
+
+24. **`author_id <> 1` na kolumnie z NULL-ami po cichu chowa każdą zastaną paczkę.** W trójwartościowej logice SQL `NULL <> 1` nie jest ani prawdą, ani fałszem, więc wiersz wypada z `WHERE`. Filtr „ukryj zbanowanych" musi być NULL-safe (`author_id IS NULL OR author_id NOT IN (...)`) — inaczej 5 legacy paczek bez autora znika razem ze zbanowanymi. Ta sama pułapka co mina 11, tylko na `NULL` zamiast na typie.
+
+25. **Trzy różne odpowiedzi na „co przy błędzie" i każda z innego powodu.** `isFlagEnabled()` failuje **otwarcie** (brak wiersza i błąd D1 = włączone), bo stoi przed `/download` — zamknięcie przy czkawce bazy wyłączyłoby przeglądanie wszystkim. `authenticateAdmin()` failuje **zamknięciem** (nieustawiony sekret odrzuca wszystko), bo pilnuje dostępu, nie dostępności. `REGISTER_LIMITER` zostaje przy swoim zamknięciu. Nie „ujednolicaj" tego.
+
+26. **Sufit całkowity i dobowy muszą liczyć z różnych tabel.** Całkowity z `packages` (mutowalne — skasowanie paczki naprawdę zwalnia R2), dobowy z `publish_events` (append-only — skasowanie nie może zwolnić przydziału). Zamiana ich miejscami odtwarza minę 17 na bajtach: pętla „opublikuj → skasuj" zerowałaby limit dobowy. Test na to jest wprost: po skasowaniu paczki limit dobowy dalej odrzuca, a całkowity przepuszcza.
+
+27. **`segment()` rozumie wyłącznie kształt `/resource/:id`.** Trasy admina nazwane są `/admin/<jeden-segment>/:id` właśnie po to, żeby `pathname.slice(6)` (ucięcie literału `/admin`) zamieniło je z powrotem w ten kształt — zero drugiego parsera ścieżek. `GET /admin/flags` się w to nie mieści i dlatego jest dopasowywane dokładnym `pathname === "/admin/flags"`. Nowa trasa admina, która w ten wzorzec nie wchodzi, potrzebuje własnej obsługi.
+
+28. **Dwie instancje `wrangler dev` na tym samym stanie lokalnym wywalają workerd.** Jeśli backend już chodzi w drugim terminalu, druga instancja dostaje `SQLITE_BUSY` przy najbliższym przeładowaniu i pada w trakcie testów (a `--port` tego nie ratuje, bo konflikt jest o katalog `.wrangler/state`, nie o port). Do testów: `npx wrangler dev --port 8799 --persist-to <katalog-tymczasowy>` plus `wrangler d1 migrations apply --local --persist-to <ten sam katalog>`.
 
 ## Testowanie bez Obsidiana
 

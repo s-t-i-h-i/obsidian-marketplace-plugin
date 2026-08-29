@@ -16,6 +16,13 @@ export const ALLOWED_EXTENSIONS = ['md', 'canvas', 'png', 'jpg', 'jpeg', 'gif', 
 declare const __API_BASE_URL__: string;
 export const API_BASE_URL = __API_BASE_URL__;
 
+/**
+ * Max size of an archive being published. Mirrors the worker's own limit —
+ * checked here so an oversized package fails before the upload rather than
+ * after it, which used to be the only way to find out.
+ */
+export const MAX_PUBLISH_BYTES = 50 * 1024 * 1024;
+
 // --- archive limits when downloading ---
 
 /** Max size of the ZIP file itself. The server caps at 50 MB; this leaves headroom. */

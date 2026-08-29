@@ -194,5 +194,16 @@ Trzy rzeczy, które warto stąd wynieść:
 - **Nie ma odzyskiwania konta** — brak e-maila i hasła.
 - **Zawartość ZIP-a nie jest sprawdzana na serwerze.** Jedyną barierą jest walidacja
   ścieżek w `installs.ts` po stronie wtyczki, przy rozpakowywaniu.
-- **Nie ma panelu moderacji.** Ban ustawia się flagą `is_banned` przez `wrangler d1 execute`.
+- **Nie ma panelu moderacji z interfejsem.** Są za to endpointy administracyjne, chronione
+  sekretem `ADMIN_TOKEN` w nagłówku `X-Admin-Token`: `POST /admin/ban/:id`,
+  `POST /admin/unban/:id`, `DELETE /admin/packages/:id` oraz wyłączniki
+  `POST /admin/flags/:name` (`publish`, `register`, `download`) i `GET /admin/flags`.
+  Obsługuje się je curlem — nie ma dla nich UI we wtyczce.
+- **Ban jest odwracalny i niczego nie kasuje.** Paczki zbanowanego konta znikają
+  z `/packages`, `/packages/:id` i `/download/:id`, ale wiersze w D1 i pliki w R2
+  zostają nietknięte, więc odban przywraca wszystko. Ban blokuje też natychmiast
+  wszystkie tokeny konta, bo `is_banned` sprawdzane jest w `authenticate()`.
 - **Limit rejestracji działa po IP**, więc NAT i VPN dzielą jeden licznik.
+- **Są dwa globalne sufity magazynu** (nie per konto): 10 GB łącznie i 2 GB na dobę,
+  liczone dla całego serwisu razem. Po ich przekroczeniu publikacja zwraca `503`,
+  niezależnie od tego, ile miejsca zajmuje Twoje własne konto.
