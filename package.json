@@ -1,5 +1,5 @@
 {
-	"name": "notes-hub-plugin",
+	"name": "notes-hub",
 	"version": "0.1.0",
 	"description": "Browse, download, and publish knowledge packages shared by the community.",
 	"main": "main.js",
