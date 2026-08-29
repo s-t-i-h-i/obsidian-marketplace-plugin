@@ -152,16 +152,9 @@ class PublishModal extends Modal {
 			text: 'Every download would reject this archive outright. Rename or remove these before publishing.',
 		});
 
-		const list = this.bodyEl.createDiv({ cls: 'marketplace-findings' });
-		for (const problem of problems.slice(0, MAX_LISTED)) {
-			list.createDiv({ cls: 'marketplace-finding marketplace-finding-danger', text: problem });
-		}
-		if (problems.length > MAX_LISTED) {
-			list.createDiv({
-				cls: 'marketplace-finding-path',
-				text: `...and ${problems.length - MAX_LISTED} more.`,
-			});
-		}
+		this.renderTruncatedList(problems, (list, problem) =>
+			list.createDiv({ cls: 'marketplace-finding marketplace-finding-danger', text: problem }),
+		);
 
 		new Setting(this.bodyEl).addButton((button) =>
 			button.setButtonText('Close').setCta().onClick(() => this.close()),
@@ -192,16 +185,26 @@ class PublishModal extends Modal {
 		this.bodyEl.createEl('h4', { text: title });
 		this.bodyEl.createDiv({ cls: 'marketplace-finding-path', text: desc });
 
-		const list = this.bodyEl.createDiv({ cls: 'marketplace-findings' });
-		for (const link of links.slice(0, MAX_LISTED)) {
+		this.renderTruncatedList(links, (list, link) => {
 			const row = list.createDiv({ cls: 'marketplace-finding marketplace-finding-warning' });
 			row.createDiv({ cls: 'marketplace-finding-label', text: link.target });
 			row.createDiv({ cls: 'marketplace-finding-path', text: `in: ${link.source}` });
+		});
+	}
+
+	/** Renders at most MAX_LISTED items, with a "...and N more." row for the rest. */
+	private renderTruncatedList<T>(
+		items: T[],
+		renderItem: (list: HTMLElement, item: T) => void,
+	): void {
+		const list = this.bodyEl.createDiv({ cls: 'marketplace-findings' });
+		for (const item of items.slice(0, MAX_LISTED)) {
+			renderItem(list, item);
 		}
-		if (links.length > MAX_LISTED) {
+		if (items.length > MAX_LISTED) {
 			list.createDiv({
 				cls: 'marketplace-finding-path',
-				text: `...and ${links.length - MAX_LISTED} more.`,
+				text: `...and ${items.length - MAX_LISTED} more.`,
 			});
 		}
 	}

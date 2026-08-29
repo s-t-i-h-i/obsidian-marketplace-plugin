@@ -194,15 +194,9 @@ function excerpt(content: string, index: number): string {
 		.trim();
 }
 
-function extensionOf(path: string): string {
+/** Shared with installs.ts, which also needs to tell a dotted folder name from a real extension. */
+export function extensionOf(path: string): string {
 	const dot = path.lastIndexOf('.');
-	return dot === -1 ? '' : path.slice(dot + 1).toLowerCase();
-}
-
-/** Groups findings for display: dangers first, then warnings. */
-export function summarize(findings: Finding[]): { dangers: Finding[]; warnings: Finding[] } {
-	return {
-		dangers: findings.filter((f) => f.severity === 'danger'),
-		warnings: findings.filter((f) => f.severity === 'warning'),
-	};
+	const slash = path.lastIndexOf('/');
+	return dot === -1 || dot < slash ? '' : path.slice(dot + 1).toLowerCase();
 }

@@ -11,7 +11,7 @@ import {
 	MAX_COMPRESSION_RATIO,
 	MAX_UNCOMPRESSED_BYTES,
 } from './constants';
-import { isScannable, scanContent, type Finding } from './scan';
+import { extensionOf, isScannable, scanContent, type Finding } from './scan';
 
 /**
  * Characters not allowed in a folder name.
@@ -392,12 +392,6 @@ async function rollback(app: App, root: string): Promise<void> {
 	} catch (error) {
 		console.error('Failed to clean up after a failed installation', error);
 	}
-}
-
-function extensionOf(path: string): string {
-	const dot = path.lastIndexOf('.');
-	const slash = path.lastIndexOf('/');
-	return dot === -1 || dot < slash ? '' : path.slice(dot + 1).toLowerCase();
 }
 
 export function formatBytes(bytes: number): string {

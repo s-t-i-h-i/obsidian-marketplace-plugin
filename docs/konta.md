@@ -198,7 +198,8 @@ Trzy rzeczy, które warto stąd wynieść:
   sekretem `ADMIN_TOKEN` w nagłówku `X-Admin-Token`: `POST /admin/ban/:id`,
   `POST /admin/unban/:id`, `DELETE /admin/packages/:id` oraz wyłączniki
   `POST /admin/flags/:name` (`publish`, `register`, `download`) i `GET /admin/flags`.
-  Obsługuje się je curlem — nie ma dla nich UI we wtyczce.
+  Obsługuje się je curlem — nie ma dla nich UI we wtyczce. Krok po kroku, dla kogoś,
+  kto nigdy tego nie robił: `docs/admin.md`.
 - **Ban jest odwracalny i niczego nie kasuje.** Paczki zbanowanego konta znikają
   z `/packages`, `/packages/:id` i `/download/:id`, ale wiersze w D1 i pliki w R2
   zostają nietknięte, więc odban przywraca wszystko. Ban blokuje też natychmiast
