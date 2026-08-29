@@ -27,7 +27,7 @@ export async function downloadPackageArchive(
 	// Nie sięgamy tu po response.json - to getter robiący JSON.parse, a archiwum
 	// zaczyna się od "PK", więc rzuciłby SyntaxError.
 	if (!response.arrayBuffer || response.arrayBuffer.byteLength === 0) {
-		throw new Error('Pobrany plik jest pusty');
+		throw new Error('The downloaded file is empty');
 	}
 
 	return response.arrayBuffer;
@@ -54,7 +54,7 @@ export async function fetchPackages(settings: MarketplaceSettings): Promise<Pack
 
 	const data: unknown = response.json;
 	if (!Array.isArray(data)) {
-		throw new Error('Serwer zwrócił coś innego niż listę paczek');
+		throw new Error('The server returned something other than a package list');
 	}
 
 	return data.map(toPackage);
@@ -77,7 +77,7 @@ function toPackage(raw: unknown): Package {
 	const row = (raw ?? {}) as Record<string, unknown>;
 	return {
 		id: asText(row.id),
-		title: asText(row.title) || '(bez tytułu)',
+		title: asText(row.title) || '(untitled)',
 		description: asText(row.description),
 		author: asText(row.author),
 		// paczki zastane mają author_id = null, a asText() robi z tego pusty string

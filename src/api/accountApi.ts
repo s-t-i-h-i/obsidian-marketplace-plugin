@@ -22,7 +22,7 @@ export async function registerAccount(
 
 	const data = response.json as { user_id?: string; username?: string; token?: string };
 	if (!data.token || !data.user_id) {
-		throw new Error('Serwer nie zwrócił tokenu');
+		throw new Error('The server did not return a token');
 	}
 
 	return {
@@ -69,7 +69,7 @@ export async function createToken(
 	});
 
 	const data = response.json as { token?: string };
-	if (!data.token) throw new Error('Serwer nie zwrócił tokenu');
+	if (!data.token) throw new Error('The server did not return a token');
 
 	return data.token;
 }

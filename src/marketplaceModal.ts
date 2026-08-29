@@ -15,9 +15,9 @@ import { renderFindings, renderConfirmRow } from './review';
 type SortKey = 'newest' | 'oldest' | 'title';
 
 const SORT_LABELS: Record<SortKey, string> = {
-	newest: 'Najnowsze',
-	oldest: 'Najstarsze',
-	title: 'Tytuł A-Z',
+	newest: 'Newest',
+	oldest: 'Oldest',
+	title: 'Title A-Z',
 };
 
 const ALL_TAGS = '';
@@ -44,7 +44,7 @@ class MarketplaceModal extends Modal {
 	onOpen() {
 		const { contentEl } = this;
 		contentEl.empty();
-		contentEl.createEl('h2', { text: 'Biblioteka paczek' });
+		contentEl.createEl('h2', { text: 'Package library' });
 		// osobny kontener na treść: przerysowujemy tylko jego, nagłówek zostaje
 		this.bodyEl = contentEl.createDiv();
 
@@ -56,7 +56,7 @@ class MarketplaceModal extends Modal {
 	}
 
 	private async load() {
-		this.renderMessage('Ładowanie...');
+		this.renderMessage('Loading...');
 
 		try {
 			this.packages = await fetchPackages(this.plugin.settings);
@@ -64,7 +64,7 @@ class MarketplaceModal extends Modal {
 		} catch (error) {
 			console.error(error);
 			const reason = error instanceof Error ? error.message : String(error);
-			this.renderError(`Nie udało się pobrać paczek: ${reason}`);
+			this.renderError(`Failed to fetch packages: ${reason}`);
 		}
 	}
 
@@ -78,7 +78,7 @@ class MarketplaceModal extends Modal {
 	private renderError(text: string) {
 		this.renderMessage(text);
 		new ButtonComponent(this.bodyEl)
-			.setButtonText('Spróbuj ponownie')
+			.setButtonText('Try again')
 			.setCta()
 			.onClick(() => void this.load());
 	}
@@ -89,7 +89,7 @@ class MarketplaceModal extends Modal {
 		this.bodyEl.empty();
 
 		if (this.packages.length === 0) {
-			this.renderMessage('Biblioteka jest pusta.');
+			this.renderMessage('The library is empty.');
 			return;
 		}
 
@@ -97,7 +97,7 @@ class MarketplaceModal extends Modal {
 
 		const visible = this.visiblePackages();
 		if (visible.length === 0) {
-			this.bodyEl.createDiv({ text: `Brak paczek z tagiem #${this.tagFilter}.` });
+			this.bodyEl.createDiv({ text: `No packages with tag #${this.tagFilter}.` });
 			return;
 		}
 
@@ -110,13 +110,13 @@ class MarketplaceModal extends Modal {
 	private renderToolbar() {
 		// Wszystkie tagi z katalogu, bez powtórzeń - filtr ma pokazywać to, co faktycznie istnieje.
 		const tags = [...new Set(this.packages.flatMap((pkg) => pkg.tags))].sort((a, b) =>
-			a.localeCompare(b, 'pl'),
+			a.localeCompare(b, 'en'),
 		);
 
 		new Setting(this.bodyEl)
-			.setName('Tagi i kolejność')
+			.setName('Tags and order')
 			.addDropdown((dropdown) => {
-				dropdown.addOption(ALL_TAGS, 'Wszystkie tagi');
+				dropdown.addOption(ALL_TAGS, 'All tags');
 				for (const tag of tags) {
 					dropdown.addOption(tag, `#${tag}`);
 				}
@@ -146,7 +146,7 @@ class MarketplaceModal extends Modal {
 			: [...this.packages];
 
 		return filtered.sort((a, b) => {
-			if (this.sortBy === 'title') return a.title.localeCompare(b.title, 'pl');
+			if (this.sortBy === 'title') return a.title.localeCompare(b.title, 'en');
 			// created_at to ISO-8601, więc zwykłe porównanie tekstów jest chronologiczne
 			if (this.sortBy === 'oldest') return a.createdAt.localeCompare(b.createdAt);
 			return b.createdAt.localeCompare(a.createdAt);
@@ -172,7 +172,7 @@ class MarketplaceModal extends Modal {
 	// --- widok szczegółów ---
 
 	private async showDetail(listed: Package) {
-		this.renderMessage('Ładowanie szczegółów...');
+		this.renderMessage('Loading details...');
 
 		let pkg = listed;
 		try {
@@ -181,13 +181,13 @@ class MarketplaceModal extends Modal {
 		} catch (error) {
 			console.error(error);
 			// brak struktury nie jest powodem, żeby nie pokazać reszty
-			new Notice('Nie udało się pobrać struktury paczki');
+			new Notice('Failed to fetch the package structure');
 		}
 
 		this.bodyEl.empty();
 
 		new ButtonComponent(this.bodyEl)
-			.setButtonText('Wróć do listy')
+			.setButtonText('Back to list')
 			.onClick(() => this.renderList());
 
 		const detail = this.bodyEl.createDiv({ cls: 'marketplace-detail' });
@@ -208,22 +208,22 @@ class MarketplaceModal extends Modal {
 			}
 		}
 
-		detail.createEl('h4', { text: 'Opis' });
+		detail.createEl('h4', { text: 'Description' });
 		detail.createDiv({
 			cls: 'marketplace-detail-desc',
-			text: pkg.description || 'Autor nie dodał opisu.',
+			text: pkg.description || 'The author did not add a description.',
 		});
 
-		detail.createEl('h4', { text: 'Zawartość' });
+		detail.createEl('h4', { text: 'Contents' });
 		this.renderStructure(detail, pkg.structure);
 
 		const actions = detail.createDiv({ cls: 'marketplace-card-actions' });
-		const download = new ButtonComponent(actions).setButtonText('Pobierz').setCta();
+		const download = new ButtonComponent(actions).setButtonText('Download').setCta();
 		download.onClick(() => void this.download(pkg, download));
 
 		// Podpowiedź interfejsu, nie zabezpieczenie - właściciela sprawdza serwer.
 		if (pkg.authorId && pkg.authorId === this.plugin.settings.userId) {
-			armButton(new ButtonComponent(actions), 'Usuń', 'Na pewno?', () => {
+			armButton(new ButtonComponent(actions), 'Delete', 'Are you sure?', () => {
 				void this.remove(pkg);
 			});
 		}
@@ -233,7 +233,7 @@ class MarketplaceModal extends Modal {
 		if (paths.length === 0) {
 			parent.createDiv({
 				cls: 'marketplace-tree-empty',
-				text: 'Ta paczka została opublikowana zanim zapisywaliśmy strukturę folderów.',
+				text: 'This package was published before we started saving folder structure.',
 			});
 			return;
 		}
@@ -242,7 +242,7 @@ class MarketplaceModal extends Modal {
 		renderNode(tree, buildTree(paths), 0);
 		parent.createDiv({
 			cls: 'marketplace-tree-count',
-			text: `Plików: ${paths.length}`,
+			text: `Files: ${paths.length}`,
 		});
 	}
 
@@ -251,7 +251,7 @@ class MarketplaceModal extends Modal {
 	private async download(pkg: Package, button: ButtonComponent) {
 		// blokada od razu: pobranie trwa, a trzy kliknięcia dałyby trzy kopie paczki
 		button.setDisabled(true);
-		button.setButtonText('Pobieranie...');
+		button.setButtonText('Downloading...');
 
 		try {
 			const archive = await downloadPackageArchive(this.plugin.settings, pkg.id);
@@ -279,20 +279,20 @@ class MarketplaceModal extends Modal {
 	 */
 	private confirmInstall(pkg: Package, plan: PackagePlan, button: ButtonComponent) {
 		this.bodyEl.empty();
-		this.bodyEl.createEl('h3', { text: `Sprawdź zawartość: ${pkg.title}` });
+		this.bodyEl.createEl('h3', { text: `Review contents: ${pkg.title}` });
 		this.bodyEl.createDiv({
 			cls: 'marketplace-detail-desc',
 			text:
-				`Paczka ma ${plan.files.length} plików (${formatBytes(plan.totalBytes)}) i zawiera treść, ` +
-				'która może się wykonać albo połączyć z siecią przy otwarciu notatki. ' +
-				'Instaluj tylko od autora, któremu ufasz.',
+				`This package has ${plan.files.length} files (${formatBytes(plan.totalBytes)}) and contains content ` +
+				'that may execute or connect to the network when a note is opened. ' +
+				'Only install from an author you trust.',
 		});
 
 		renderFindings(this.bodyEl, plan.findings);
 
 		renderConfirmRow(
 			this.bodyEl,
-			'Rozumiem, pobierz mimo to',
+			'I understand, download anyway',
 			() => void this.write(pkg, plan, button),
 			() => void this.showDetail(pkg),
 		);
@@ -308,11 +308,11 @@ class MarketplaceModal extends Modal {
 				pkg.title,
 			);
 
-			new Notice(`Pobrano do: ${folder}`);
+			new Notice(`Downloaded to: ${folder}`);
 			void this.showDetail(pkg);
 			// przycisk zostaje zablokowany - drugie kliknięcie zrobiłoby kopię
 			// "Paczka 2", co niemal zawsze jest pomyłką, a nie zamiarem
-			button.setButtonText('Pobrano');
+			button.setButtonText('Downloaded');
 		} catch (error) {
 			this.failDownload(error, button);
 		}
@@ -321,17 +321,17 @@ class MarketplaceModal extends Modal {
 	private failDownload(error: unknown, button: ButtonComponent) {
 		// konsola dostaje pełny stack trace, user jedno czytelne zdanie
 		console.error(error);
-		new Notice('Błąd pobierania: ' + (error instanceof Error ? error.message : String(error)));
+		new Notice('Download error: ' + (error instanceof Error ? error.message : String(error)));
 
 		// nieudane pobranie nie może zabrać możliwości ponowienia
 		button.setDisabled(false);
-		button.setButtonText('Pobierz');
+		button.setButtonText('Download');
 	}
 
 	private async remove(pkg: Package) {
 		try {
 			await deletePackage(this.plugin.settings, pkg.id);
-			new Notice(`Usunięto: ${pkg.title}`);
+			new Notice(`Deleted: ${pkg.title}`);
 			// przeładowanie zamiast łatania listy na miejscu - widok ma pokazywać
 			// stan serwera, a nie nasze wyobrażenie o nim
 			void this.load();
@@ -339,8 +339,8 @@ class MarketplaceModal extends Modal {
 			console.error(error);
 			new Notice(
 				error instanceof UnauthorizedError
-					? 'Serwer odrzucił token. Sprawdź ustawienia pluginu.'
-					: 'Błąd usuwania: ' + (error instanceof Error ? error.message : String(error)),
+					? 'The server rejected the token. Check the plugin settings.'
+					: 'Delete error: ' + (error instanceof Error ? error.message : String(error)),
 			);
 		}
 	}
@@ -382,7 +382,7 @@ function renderNode(parent: HTMLElement, node: TreeNode, depth: number) {
 	// foldery przed plikami, potem alfabetycznie - tak samo jak w eksploratorze Obsidiana
 	const children = [...node.children.values()].sort((a, b) => {
 		if (a.isFile !== b.isFile) return a.isFile ? 1 : -1;
-		return a.name.localeCompare(b.name, 'pl');
+		return a.name.localeCompare(b.name, 'en');
 	});
 
 	for (const child of children) {
@@ -402,5 +402,5 @@ function renderNode(parent: HTMLElement, node: TreeNode, depth: number) {
 function formatDate(iso: string): string {
 	if (!iso) return '';
 	const date = new Date(iso);
-	return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('pl-PL');
+	return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('en-US');
 }

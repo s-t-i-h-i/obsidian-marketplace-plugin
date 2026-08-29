@@ -35,17 +35,17 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		new Setting(containerEl).setName('Konto').setHeading();
+		new Setting(containerEl).setName('Account for publishing notes').setHeading();
 		if (this.plugin.settings.token) {
 			this.renderLoggedIn(containerEl);
 		} else {
 			this.renderLoggedOut(containerEl);
 		}
 
-		new Setting(containerEl).setName('Pobieranie').setHeading();
+		new Setting(containerEl).setName('Downloads').setHeading();
 		new Setting(containerEl)
-			.setName('Folder pobierania')
-			.setDesc('Folder, w którym lądują paczki pobrane z marketplace.')
+			.setName('Download folder')
+			.setDesc('Folder where packages downloaded from the marketplace end up.')
 			.addText((text) =>
 				text.setValue(this.plugin.settings.downloadFolder).onChange(async (value) => {
 					this.plugin.settings.downloadFolder = value;
@@ -60,16 +60,16 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 		let username = '';
 
 		new Setting(containerEl)
-			.setName('Załóż nowe konto')
-			.setDesc('Od 3 do 32 znaków: litery, cyfry, podkreślnik, myślnik.')
+			.setName('Create a new account')
+			.setDesc('Use 3 to 32 characters: letters, digits, underscore, hyphen.')
 			.addText((text) =>
-				text.setPlaceholder('Nazwa użytkownika').onChange((value) => {
+				text.setPlaceholder('Username').onChange((value) => {
 					username = value;
 				}),
 			)
 			.addButton((button) =>
 				button
-					.setButtonText('Załóż konto')
+					.setButtonText('Create account')
 					.setCta()
 					.onClick(async () => {
 						try {
@@ -77,13 +77,13 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 							this.plugin.settings.token = account.token;
 							await this.rememberIdentity(account);
 							new Notice(
-								`Konto ${account.username} utworzone. Token jest w polu poniżej — zapisz go, ` +
-									'bo serwer nie pokaże go drugi raz.',
+								`Account ${account.username} created. The token is in the field below — save it, ` +
+									'the server will not show it again.',
 								0,
 							);
 							this.display();
 						} catch (error) {
-							new Notice(this.describe(error, 'Nie udało się założyć konta'));
+							new Notice(this.describe(error, 'Failed to create account'));
 						}
 					}),
 			);
@@ -94,20 +94,20 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 	// --- stan z tokenem ---
 
 	private renderLoggedIn(containerEl: HTMLElement): void {
-		const who = this.plugin.settings.username || '(nazwa nieznana)';
+		const who = this.plugin.settings.username || '(unknown name)';
 
 		new Setting(containerEl)
-			.setName(`Zalogowany jako: ${who}`)
-			.setDesc('Sprawdza, czy token nadal działa, i odświeża dane konta.')
+			.setName(`Logged in as: ${who}`)
+			.setDesc('Checks whether the token still works and refreshes account data.')
 			.addButton((button) =>
-				button.setButtonText('Odśwież').onClick(async () => {
+				button.setButtonText('Refresh').onClick(async () => {
 					try {
 						const account = await fetchMe(this.plugin.settings);
 						await this.rememberIdentity(account);
-						new Notice(`Zalogowany jako ${account.username}. Tokenów na koncie: ${account.tokens}.`);
+						new Notice(`Logged in as ${account.username}. Tokens on this account: ${account.tokens}.`);
 						this.display();
 					} catch (error) {
-						new Notice(this.describe(error, 'Błąd połączenia'));
+						new Notice(this.describe(error, 'Connection error'));
 					}
 				}),
 			);
@@ -116,12 +116,12 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 
 		// Zwykłe wyjście: nic nie niszczy, więc stoi obok normalnych ustawień.
 		new Setting(containerEl)
-			.setName('Wyloguj z tego urządzenia')
-			.setDesc('Usuwa token tylko stąd. Token zostaje ważny — wklej go, żeby wrócić na konto.')
+			.setName('Log out on this device')
+			.setDesc('Removes the token only here. The token stays valid — paste it back in to return to the account.')
 			.addButton((button) =>
-				button.setButtonText('Wyloguj').onClick(async () => {
+				button.setButtonText('Log out').onClick(async () => {
 					await this.forgetIdentity();
-					new Notice('Wylogowano. Token nadal działa — wklej go, żeby wrócić.');
+					new Notice('Logged out. The token still works — paste it back in to return.');
 					this.display();
 				}),
 			);
@@ -131,37 +131,37 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 
 	/** Akcje nieodwracalne trzymamy osobno, żeby nie stały obok codziennych. */
 	private renderDangerZone(containerEl: HTMLElement): void {
-		new Setting(containerEl).setName('Zaawansowane').setHeading();
+		new Setting(containerEl).setName('Advanced').setHeading();
 
 		new Setting(containerEl)
-			.setName('Token dla innego urządzenia')
-			.setDesc('Wydaje dodatkowy token. Konto może mieć ich najwyżej 10.')
+			.setName('Token for another device')
+			.setDesc('Issues an additional token. An account can have at most 10.')
 			.addButton((button) =>
-				button.setButtonText('Wydaj nowy').onClick(async () => {
+				button.setButtonText('Issue new').onClick(async () => {
 					try {
 						const token = await createToken(this.plugin.settings, 'obsidian');
 						// Ten token nigdzie się nie zapisuje, więc musi być widoczny na ekranie
 						// nawet wtedy, gdy schowek zawiedzie.
-						new Notice(`Nowy token — zapisz go teraz:\n${token}`, 0);
-						await this.copy(token, 'Nowy token');
+						new Notice(`New token — save it now:\n${token}`, 0);
+						await this.copy(token, 'New token');
 					} catch (error) {
-						new Notice(this.describe(error, 'Nie udało się wydać tokenu'));
+						new Notice(this.describe(error, 'Failed to issue token'));
 					}
 				}),
 			);
 
 		new Setting(containerEl)
-			.setName('Unieważnij ten token')
-			.setDesc('Kasuje token na serwerze — użyj, gdy wyciekł. Jeśli to jedyny token konta, stracisz do niego dostęp.')
+			.setName('Revoke this token')
+			.setDesc('Deletes the token on the server — use this if it leaked. If it is the account\'s only token, you will lose access to it.')
 			.addButton((button) =>
-				armButton(button, 'Unieważnij', 'Na pewno?', () => {
+				armButton(button, 'Revoke', 'Are you sure?', () => {
 					void (async () => {
 						try {
 							await revokeToken(this.plugin.settings);
-							new Notice('Token unieważniony');
+							new Notice('Token revoked');
 						} catch (error) {
 							console.error(error);
-							new Notice('Nie udało się unieważnić na serwerze, usuwam lokalnie.');
+							new Notice('Failed to revoke on the server, removing locally.');
 						}
 						// Czyścimy lokalnie także przy błędzie: inaczej w vaulcie zostałby
 						// token, który użytkownik uważa za usunięty.
@@ -172,18 +172,18 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName('Zamknij konto')
-			.setDesc('Kasuje konto, jego tokeny i wszystkie opublikowane paczki. Tego nie da się cofnąć.')
+			.setName('Close account')
+			.setDesc('Deletes the account, its tokens, and all published packages. This cannot be undone.')
 			.addButton((button) =>
-				armButton(button, 'Zamknij konto', 'Skasować wszystko?', () => {
+				armButton(button, 'Close account', 'Delete everything?', () => {
 					void (async () => {
 						try {
 							const removed = await closeAccount(this.plugin.settings);
 							await this.forgetIdentity();
-							new Notice(`Konto zamknięte. Usunięto paczek: ${removed}.`);
+							new Notice(`Account closed. Packages deleted: ${removed}.`);
 							this.display();
 						} catch (error) {
-							new Notice(this.describe(error, 'Nie udało się zamknąć konta'));
+							new Notice(this.describe(error, 'Failed to close account'));
 						}
 					})();
 				}),
@@ -202,21 +202,21 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 		let input: TextComponent | null = null;
 
 		const setting = new Setting(containerEl)
-			.setName(loggedIn ? 'Twój token' : 'Mam już token')
+			.setName(loggedIn ? 'Your token' : 'I already have a token')
 			.setDesc(
 				(loggedIn
-					? 'Zapisz go w bezpiecznym miejscu — bez niego nie wrócisz na konto. Leży otwartym tekstem w data.json wewnątrz vaulta.'
-					: 'Wklej token, żeby wrócić na istniejące konto. Zaczyna się od omp_ i ma 68 znaków.') +
+					? 'Save it somewhere safe — without it you cannot get back into the account. It sits as plain text in data.json inside the vault.'
+					: 'Paste a token to return to an existing account. It starts with omp_ and is 68 characters long.') +
 					// Adresu serwera nie da się już zmienić, ale trzeba wiedzieć, dokąd
 					// leci poświadczenie - choćby po to, żeby odróżnić build deweloperski
 					// od produkcyjnego, gdy konto "nie istnieje".
-					` Konto działa na: ${API_BASE_URL}`,
+					` Account runs on: ${API_BASE_URL}`,
 			)
 			.addText((text) => {
 				input = text;
 				text.inputEl.type = 'password'; // maskowanie w UI
 				text
-					.setPlaceholder('Wklej token')
+					.setPlaceholder('Paste token')
 					.setValue(this.plugin.settings.token)
 					.onChange(async (value) => {
 						const token = value.trim();
@@ -237,7 +237,7 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 		setting.addExtraButton((extra) =>
 			extra
 				.setIcon('eye')
-				.setTooltip('Pokaż lub ukryj token')
+				.setTooltip('Show or hide token')
 				.onClick(() => {
 					if (!input) return;
 					const hidden = input.inputEl.type === 'password';
@@ -250,22 +250,22 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 			setting.addExtraButton((extra) =>
 				extra
 					.setIcon('copy')
-					.setTooltip('Kopiuj token do schowka')
+					.setTooltip('Copy token to clipboard')
 					.onClick(() => void this.copy(this.plugin.settings.token, 'Token')),
 			);
 		} else {
 			setting.addButton((button) =>
 				button
-					.setButtonText('Zaloguj')
+					.setButtonText('Log in')
 					.setCta()
 					.onClick(async () => {
 						try {
 							const account = await fetchMe(this.plugin.settings);
 							await this.rememberIdentity(account);
-							new Notice(`Zalogowany jako ${account.username}`);
+							new Notice(`Logged in as ${account.username}`);
 							this.display();
 						} catch (error) {
-							new Notice(this.describe(error, 'Nie udało się zalogować'));
+							new Notice(this.describe(error, 'Failed to log in'));
 						}
 					}),
 			);
@@ -292,15 +292,15 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 	private async copy(value: string, label: string): Promise<void> {
 		try {
 			await navigator.clipboard.writeText(value);
-			new Notice(`${label} skopiowany do schowka`);
+			new Notice(`${label} copied to clipboard`);
 		} catch {
-			new Notice('Schowek niedostępny — skopiuj token ręcznie z pola (ikona oka pokazuje treść).');
+			new Notice('Clipboard unavailable — copy the token manually from the field (the eye icon reveals it).');
 		}
 	}
 
 	private describe(error: unknown, prefix: string): string {
 		if (error instanceof UnauthorizedError) {
-			return 'Serwer odrzucił token. Sprawdź, czy jest poprawny.';
+			return 'The server rejected the token. Check that it is correct.';
 		}
 		return `${prefix}: ${error instanceof Error ? error.message : String(error)}`;
 	}

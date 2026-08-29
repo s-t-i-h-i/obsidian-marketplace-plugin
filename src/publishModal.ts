@@ -10,9 +10,9 @@ import { renderFindings, renderConfirmRow } from './review';
 type FieldKey = 'title' | 'description' | 'tags';
 
 const FIELDS: { key: FieldKey; name: string; desc?: string; multiline?: boolean }[] = [
-	{ key: 'title', name: 'Tytuł' },
-	{ key: 'description', name: 'Opis', multiline: true },
-	{ key: 'tags', name: 'Tagi', desc: 'Oddzielone przecinkami' },
+	{ key: 'title', name: 'Title' },
+	{ key: 'description', name: 'Description', multiline: true },
+	{ key: 'tags', name: 'Tags', desc: 'Comma-separated' },
 ];
 
 /** Ile problemów wypisujemy, zanim lista przestaje być czytelna. */
@@ -24,13 +24,13 @@ export function openPublishModal(plugin: MarketplacePlugin, folder: TFolder): vo
 	// żeby dopiero potem powiedzieć mu "zaloguj się", to zła kolejność - a przy okazji
 	// nie ma po co przechodzić drzewa folderów.
 	if (!plugin.settings.token.trim()) {
-		new Notice('Zaloguj się w ustawieniach pluginu, żeby publikować');
+		new Notice('Log in from the plugin settings to publish');
 		return;
 	}
 
 	const files = collectFiles(folder);
 	if (files.length === 0) {
-		new Notice('Brak plików do opublikowania');
+		new Notice('No files to publish');
 		return;
 	}
 
@@ -61,7 +61,7 @@ class PublishModal extends Modal {
 	onOpen() {
 		const { contentEl } = this;
 		contentEl.empty();
-		contentEl.createEl('h2', { text: `Publikuj: ${this.folder.name}` });
+		contentEl.createEl('h2', { text: `Publish: ${this.folder.name}` });
 		this.bodyEl = contentEl.createDiv();
 
 		void this.review();
@@ -76,7 +76,7 @@ class PublishModal extends Modal {
 	 */
 	private async review() {
 		this.bodyEl.empty();
-		this.bodyEl.createDiv({ text: 'Sprawdzanie zawartości...' });
+		this.bodyEl.createDiv({ text: 'Checking contents...' });
 
 		const links = findBrokenLinks(this.app, this.files);
 		const findings = await this.scanFiles();
@@ -88,7 +88,7 @@ class PublishModal extends Modal {
 		// wysyłałoby wszystko, a bez tej informacji nikt by się nie zorientował.
 		this.bodyEl.createDiv({
 			cls: 'marketplace-detail-desc',
-			text: `Do wysłania: ${this.files.length} plików, ${formatBytes(bytes)}.`,
+			text: `To be sent: ${this.files.length} files, ${formatBytes(bytes)}.`,
 		});
 
 		if (links.length === 0 && findings.length === 0) {
@@ -100,7 +100,7 @@ class PublishModal extends Modal {
 		if (findings.length > 0) {
 			this.bodyEl.createDiv({
 				cls: 'marketplace-detail-desc',
-				text: 'Ta treść wykona się albo połączy z siecią u każdego, kto pobierze paczkę:',
+				text: 'This content will execute or connect to the network for anyone who downloads the package:',
 			});
 			renderFindings(this.bodyEl, findings);
 		}
@@ -110,7 +110,7 @@ class PublishModal extends Modal {
 		// paczka bywa świadomie niekompletna, a decyzja należy do autora.
 		renderConfirmRow(
 			this.bodyEl,
-			'Publikuj mimo to',
+			'Publish anyway',
 			() => this.renderForm(),
 			() => this.close(),
 		);
@@ -135,15 +135,15 @@ class PublishModal extends Modal {
 
 		if (outside.length > 0) {
 			this.renderLinkGroup(
-				`Linki poza paczkę (${outside.length})`,
-				'Cel istnieje w Twoim vaulcie, ale nie wchodzi do paczki - u odbiorcy link będzie martwy.',
+				`Links outside the package (${outside.length})`,
+				'The target exists in your vault but is not part of the package - the link will be dead for the recipient.',
 				outside,
 			);
 		}
 		if (unresolved.length > 0) {
 			this.renderLinkGroup(
-				`Linki donikąd (${unresolved.length})`,
-				'Te linki nie prowadzą do niczego już u Ciebie.',
+				`Links to nowhere (${unresolved.length})`,
+				'These links do not lead anywhere, even for you.',
 				unresolved,
 			);
 		}
@@ -157,12 +157,12 @@ class PublishModal extends Modal {
 		for (const link of links.slice(0, MAX_LISTED)) {
 			const row = list.createDiv({ cls: 'marketplace-finding marketplace-finding-warning' });
 			row.createDiv({ cls: 'marketplace-finding-label', text: link.target });
-			row.createDiv({ cls: 'marketplace-finding-path', text: `w: ${link.source}` });
+			row.createDiv({ cls: 'marketplace-finding-path', text: `in: ${link.source}` });
 		}
 		if (links.length > MAX_LISTED) {
 			list.createDiv({
 				cls: 'marketplace-finding-path',
-				text: `...i jeszcze ${links.length - MAX_LISTED}.`,
+				text: `...and ${links.length - MAX_LISTED} more.`,
 			});
 		}
 	}
@@ -186,7 +186,7 @@ class PublishModal extends Modal {
 
 		new Setting(this.bodyEl).addButton((button) =>
 			button
-				.setButtonText('Publikuj')
+				.setButtonText('Publish')
 				.setCta()
 				.onClick(() => void this.publish(button)),
 		);
@@ -196,12 +196,12 @@ class PublishModal extends Modal {
 		const title = this.values.title.trim();
 
 		if (!title) {
-			new Notice('Tytuł jest wymagany');
+			new Notice('Title is required');
 			return;
 		}
 
 		button.setDisabled(true);
-		button.setButtonText('Publikowanie...');
+		button.setButtonText('Publishing...');
 
 		try {
 			await publishFolder(
@@ -219,7 +219,7 @@ class PublishModal extends Modal {
 				this.plugin.settings,
 			);
 
-			new Notice('Opublikowano');
+			new Notice('Published');
 			this.close();
 		} catch (error) {
 			console.error(error);
@@ -227,12 +227,12 @@ class PublishModal extends Modal {
 			// więc podpowiadamy ustawienia zamiast pokazywać gołe "401".
 			new Notice(
 				error instanceof UnauthorizedError
-					? 'Serwer odrzucił token. Sprawdź ustawienia pluginu.'
-					: 'Błąd publikacji: ' +
+					? 'The server rejected the token. Check the plugin settings.'
+					: 'Publish error: ' +
 							(error instanceof Error ? error.message : String(error)),
 			);
 			button.setDisabled(false);
-			button.setButtonText('Publikuj');
+			button.setButtonText('Publish');
 		}
 	}
 

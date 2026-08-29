@@ -217,7 +217,7 @@ python3 -c "import zipfile; z=zipfile.ZipFile('/tmp/evil.zip','w'); z.writestr('
 
 ## Konwencje
 
-- **Komentarze i teksty UI po polsku.** Wyjątek: nazwy komend (`Open marketplace`). Lintowa reguła `obsidianmd/ui/sentence-case` wymaga wielkiej litery na początku opisów w ustawieniach.
+- **Komentarze po polsku, UI po angielsku.** Do niedawna oba szły po polsku — teraz wszystko, co widzi użytkownik (`Notice`, `setName`/`setDesc`, teksty przycisków, tytuły modali, komunikaty błędów, w tym te zwracane przez backend jako `{"error": ...}`) jest po angielsku, a komentarze w kodzie zostają po polsku, tak jak było. Backend trzeba wdrożyć razem ze zmianą treści błędów — inaczej `Notice()` we wtyczce pokazywałby mieszankę języków. Lintowa reguła `obsidianmd/ui/sentence-case` wymaga wielkiej litery na początku opisów w ustawieniach.
 - Komentarz tłumaczy **dlaczego**, nie **co**. Istniejący kod trzyma ten poziom — dopasuj się do niego.
 - Taby, pojedyncze cudzysłowy, przecinki końcowe.
 - `main.ts` zostaje wyłącznie cyklem życia; logika idzie do osobnych modułów.

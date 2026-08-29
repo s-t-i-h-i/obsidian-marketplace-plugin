@@ -26,7 +26,7 @@ export default class MarketplacePlugin extends Plugin {
 
 				menu.addItem((item) =>
 					item
-						.setTitle('Publikuj')
+						.setTitle('Publish')
 						.setIcon('upload')
 						.onClick(() => openPublishModal(this, file)),
 				);

@@ -77,17 +77,17 @@ export interface PackagePlan {
  */
 export async function inspectArchive(archive: ArrayBuffer): Promise<PackagePlan> {
 	if (archive.byteLength === 0) {
-		throw new Error('Pobrany plik jest pusty');
+		throw new Error('The downloaded file is empty');
 	}
 	if (archive.byteLength > MAX_ARCHIVE_BYTES) {
 		throw new Error(
-			`Archiwum ma ${formatBytes(archive.byteLength)}, limit to ${formatBytes(MAX_ARCHIVE_BYTES)}`,
+			`The archive is ${formatBytes(archive.byteLength)}, the limit is ${formatBytes(MAX_ARCHIVE_BYTES)}`,
 		);
 	}
 	// Sygnatura przed JSZipem: serwer jest publiczny, a jego odpowiedź to po prostu
 	// bajty. Bez tego użytkownik dostawał angielski komunikat wnętrza biblioteki.
 	if (!hasZipMagic(new Uint8Array(archive))) {
-		throw new Error('Pobrany plik nie jest archiwum ZIP');
+		throw new Error('The downloaded file is not a ZIP archive');
 	}
 
 	const zip = await JSZip.loadAsync(archive);
@@ -97,7 +97,7 @@ export async function inspectArchive(archive: ArrayBuffer): Promise<PackagePlan>
 	// paczka, albo nic".
 	const files = planFiles(zip);
 	if (files.length === 0) {
-		throw new Error('Archiwum nie zawiera żadnych plików');
+		throw new Error('The archive contains no files');
 	}
 
 	const totalBytes = assertUnpackedSize(files, archive.byteLength);
@@ -157,7 +157,7 @@ function planFiles(zip: JSZip): PlannedFile[] {
 		if (entry.dir) continue;
 
 		if (files.length >= MAX_ENTRIES) {
-			throw new Error(`Archiwum zawiera ponad ${MAX_ENTRIES} plików`);
+			throw new Error(`The archive contains more than ${MAX_ENTRIES} files`);
 		}
 
 		const path = safeRelativePath(entry.name);
@@ -166,7 +166,7 @@ function planFiles(zip: JSZip): PlannedFile[] {
 		// to na nich jeden plik - drugi zapis rzuciłby dopiero w połowie instalacji.
 		const key = path.toLowerCase();
 		if (seen.has(key)) {
-			throw new Error(`Zduplikowana ścieżka w archiwum: ${entry.name}`);
+			throw new Error(`Duplicate path in archive: ${entry.name}`);
 		}
 		seen.add(key);
 
@@ -187,41 +187,41 @@ function safeRelativePath(name: string): string {
 	// niektóre archiwizatory zapisują separator windowsowy; nie chcemy zgadywać,
 	// czy "a\b.md" to jeden plik z ukośnikiem w nazwie, czy dwa poziomy
 	if (name.includes('\\')) {
-		throw new Error(`Niedozwolona ścieżka w archiwum: ${name}`);
+		throw new Error(`Disallowed path in archive: ${name}`);
 	}
 	if (name.length > MAX_ENTRY_PATH) {
-		throw new Error(`Za długa ścieżka w archiwum: ${name.slice(0, 60)}...`);
+		throw new Error(`Path too long in archive: ${name.slice(0, 60)}...`);
 	}
 	if (CONTROL_CHARS.test(name)) {
-		throw new Error('Znaki sterujące w ścieżce archiwum');
+		throw new Error('Control characters in archive path');
 	}
 	if (BIDI_CHARS.test(name)) {
 		// To nie jest kosmetyka: taki plik w panelu plików pokazuje inne
 		// rozszerzenie, niż ma naprawdę.
-		throw new Error('Znaki sterujące kierunkiem tekstu w ścieżce archiwum');
+		throw new Error('Text-direction control characters in archive path');
 	}
 
 	const segments = name.split('/');
 	if (segments.length > MAX_ENTRY_DEPTH) {
-		throw new Error(`Za głębokie zagnieżdżenie w archiwum (${segments.length} poziomów)`);
+		throw new Error(`Nesting too deep in archive (${segments.length} levels)`);
 	}
 
 	for (const segment of segments) {
 		if (segment === '' || segment === '.' || segment === '..') {
-			throw new Error(`Niedozwolona ścieżka w archiwum: ${name}`);
+			throw new Error(`Disallowed path in archive: ${name}`);
 		}
 		// Kropka na początku ukrywa plik przed panelem plików Obsidiana - paczka
 		// nie ma powodu przemycać niewidocznej zawartości.
 		if (segment.startsWith('.')) {
-			throw new Error(`Ukryty plik lub folder w archiwum: ${name}`);
+			throw new Error(`Hidden file or folder in archive: ${name}`);
 		}
 		// Windows po cichu obcina końcową kropkę i spację, więc "nota .md" i "nota.md"
 		// stają się tym samym plikiem - a to gotowa kolizja w połowie zapisu.
 		if (/[. ]$/.test(segment)) {
-			throw new Error(`Nazwa kończąca się kropką lub spacją: ${name}`);
+			throw new Error(`Name ending in a dot or space: ${name}`);
 		}
 		if (WINDOWS_RESERVED.test(segment)) {
-			throw new Error(`Zarezerwowana nazwa systemowa w archiwum: ${segment}`);
+			throw new Error(`Reserved system name in archive: ${segment}`);
 		}
 	}
 
@@ -231,8 +231,8 @@ function safeRelativePath(name: string): string {
 	const extension = extensionOf(name);
 	if (!ALLOWED_EXTENSIONS.includes(extension)) {
 		throw new Error(
-			`Niedozwolony typ pliku w archiwum: ${name}` +
-				(extension ? ` (.${extension})` : ' (brak rozszerzenia)'),
+			`Disallowed file type in archive: ${name}` +
+				(extension ? ` (.${extension})` : ' (no extension)'),
 		);
 	}
 
@@ -259,14 +259,14 @@ function assertUnpackedSize(files: PlannedFile[], archiveBytes: number): number 
 
 	if (total > MAX_UNCOMPRESSED_BYTES) {
 		throw new Error(
-			`Paczka po rozpakowaniu zajęłaby ${formatBytes(total)}, limit to ${formatBytes(MAX_UNCOMPRESSED_BYTES)}`,
+			`Unpacked, the package would take up ${formatBytes(total)}, the limit is ${formatBytes(MAX_UNCOMPRESSED_BYTES)}`,
 		);
 	}
 
 	// Sam sufit nie wystarcza: archiwum tuż pod nim, ważące 200 kB, dalej jest bombą.
 	if (total > MAX_COMPRESSION_RATIO * archiveBytes) {
 		throw new Error(
-			`Podejrzany stopień kompresji: ${formatBytes(archiveBytes)} archiwum rozpakowuje się do ${formatBytes(total)}`,
+			`Suspicious compression ratio: a ${formatBytes(archiveBytes)} archive unpacks to ${formatBytes(total)}`,
 		);
 	}
 
@@ -311,7 +311,7 @@ async function createPackageFolder(
 		}
 	}
 
-	throw new Error(`Nie znaleziono wolnej nazwy folderu dla "${packageTitle}"`);
+	throw new Error(`Could not find a free folder name for "${packageTitle}"`);
 }
 
 /**
@@ -333,14 +333,14 @@ function toFolderName(title: string): string {
 		// obcięcie mogło odsłonić kolejną kropkę albo spację na końcu
 		.replace(/[.\s]+$/g, '');
 
-	if (!name) return 'paczka';
-	return WINDOWS_RESERVED.test(name) ? `paczka ${name}` : name;
+	if (!name) return 'package';
+	return WINDOWS_RESERVED.test(name) ? `package ${name}` : name;
 }
 
 /** normalizePath() czyści ukośniki, ale zostawia ".." - a to wyprowadza poza vault. */
 function assertInsideVault(path: string): void {
 	if (path.split('/').some((segment) => segment === '..')) {
-		throw new Error(`Niedozwolony folder docelowy: ${path}`);
+		throw new Error(`Disallowed destination folder: ${path}`);
 	}
 }
 
@@ -389,7 +389,7 @@ async function rollback(app: App, root: string): Promise<void> {
 	try {
 		await app.fileManager.trashFile(folder);
 	} catch (error) {
-		console.error('Nie udało się posprzątać po nieudanej instalacji', error);
+		console.error('Failed to clean up after a failed installation', error);
 	}
 }
 

@@ -41,70 +41,70 @@ const MARKDOWN_RULES: Rule[] = [
 	{
 		pattern: /```+\s*(dataviewjs|jsx:|js-engine|meta-bind-js|run-\w+|python|preload)\b/i,
 		severity: 'danger',
-		label: 'Blok kodu wykonywany przez wtyczki (Dataview/JS Engine/Execute Code)',
+		label: 'Code block executed by plugins (Dataview/JS Engine/Execute Code)',
 	},
 	{
 		pattern: /<%[\s\S]{0,4}?\*/,
 		severity: 'danger',
-		label: 'Polecenie wykonawcze Templatera (<%* ... %>)',
+		label: 'Templater execution command (<%* ... %>)',
 	},
 	{
 		pattern: /<%[-_]?\s*tp\.(user|system|file|config)\b/i,
 		severity: 'danger',
-		label: 'Wywołanie Templatera (tp.*)',
+		label: 'Templater call (tp.*)',
 	},
-	{ pattern: /<script[\s>]/i, severity: 'danger', label: 'Znacznik <script>' },
+	{ pattern: /<script[\s>]/i, severity: 'danger', label: '<script> tag' },
 	{
 		pattern: /<(iframe|object|embed|applet)[\s>]/i,
 		severity: 'danger',
-		label: 'Osadzona ramka lub obiekt (<iframe>/<object>)',
+		label: 'Embedded frame or object (<iframe>/<object>)',
 	},
 	{
 		// on<zdarzenie>= tuż przy znaku - łapie onerror=, onload=, onclick=...
 		pattern: /<[a-z][^>\n]{0,200}\son[a-z]{3,15}\s*=/i,
 		severity: 'danger',
-		label: 'Atrybut zdarzenia HTML (onerror/onload/...)',
+		label: 'HTML event attribute (onerror/onload/...)',
 	},
-	{ pattern: /javascript:/i, severity: 'danger', label: 'Adres javascript:' },
-	{ pattern: /data:text\/html/i, severity: 'danger', label: 'Adres data:text/html' },
+	{ pattern: /javascript:/i, severity: 'danger', label: 'javascript: address' },
+	{ pattern: /data:text\/html/i, severity: 'danger', label: 'data:text/html address' },
 
 	// --- treść zdalna i lokalna: nie wykonuje kodu, ale wynosi informacje ---
 	{
 		pattern: /!\[[^\]\n]{0,200}\]\(\s*https?:\/\//i,
 		severity: 'warning',
-		label: 'Obrazek ładowany z sieci (ujawnia IP przy otwarciu notatki)',
+		label: 'Image loaded from the network (reveals your IP when the note is opened)',
 	},
 	{
 		pattern: /<img[^>\n]{0,200}src\s*=\s*["']?https?:\/\//i,
 		severity: 'warning',
-		label: 'Obrazek ładowany z sieci (ujawnia IP przy otwarciu notatki)',
+		label: 'Image loaded from the network (reveals your IP when the note is opened)',
 	},
 	{
 		pattern: /obsidian:\/\//i,
 		severity: 'warning',
-		label: 'Adres obsidian:// (potrafi uruchamiać akcje w aplikacji)',
+		label: 'obsidian:// address (can trigger actions in the app)',
 	},
 	{
 		pattern: /(?:^|[\s("'])(?:file|app):\/\//i,
 		severity: 'warning',
-		label: 'Odwołanie do lokalnego pliku (file:// lub app://)',
+		label: 'Reference to a local file (file:// or app://)',
 	},
 ];
 
 /** SVG to dokument XML, nie obrazek — potrafi nieść skrypt i odwołania do sieci. */
 const SVG_RULES: Rule[] = [
-	{ pattern: /<script[\s>]/i, severity: 'danger', label: 'Skrypt w pliku SVG' },
+	{ pattern: /<script[\s>]/i, severity: 'danger', label: 'Script in SVG file' },
 	{
 		pattern: /<[a-z][^>\n]{0,200}\son[a-z]{3,15}\s*=/i,
 		severity: 'danger',
-		label: 'Atrybut zdarzenia w pliku SVG',
+		label: 'Event attribute in SVG file',
 	},
-	{ pattern: /<foreignObject[\s>]/i, severity: 'danger', label: 'foreignObject w SVG (osadza HTML)' },
-	{ pattern: /javascript:/i, severity: 'danger', label: 'Adres javascript: w SVG' },
+	{ pattern: /<foreignObject[\s>]/i, severity: 'danger', label: 'foreignObject in SVG (embeds HTML)' },
+	{ pattern: /javascript:/i, severity: 'danger', label: 'javascript: address in SVG' },
 	{
 		pattern: /(?:xlink:)?href\s*=\s*["']?https?:\/\//i,
 		severity: 'warning',
-		label: 'SVG pobiera zasób z sieci',
+		label: 'SVG fetches a resource from the network',
 	},
 ];
 
@@ -162,7 +162,7 @@ function scanCanvas(path: string, content: string): Finding[] {
 	try {
 		parsed = JSON.parse(content);
 	} catch {
-		return [{ path, severity: 'warning', label: 'Uszkodzony plik canvas (nie jest poprawnym JSON-em)', sample: '' }];
+		return [{ path, severity: 'warning', label: 'Corrupted canvas file (not valid JSON)', sample: '' }];
 	}
 
 	const nodes = (parsed as { nodes?: unknown })?.nodes;
@@ -178,7 +178,7 @@ function scanCanvas(path: string, content: string): Finding[] {
 			findings.push({
 				path,
 				severity: 'danger',
-				label: 'Canvas osadza żywą stronę WWW (węzeł typu link)',
+				label: 'Canvas embeds a live web page (link-type node)',
 				sample: entry.url.slice(0, 120),
 			});
 		}

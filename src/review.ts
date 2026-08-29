@@ -13,10 +13,10 @@ export function renderFindings(parent: HTMLElement, findings: Finding[]): void {
 	const warnings = findings.filter((finding) => finding.severity === 'warning');
 
 	if (dangers.length > 0) {
-		renderGroup(parent, 'Aktywna treść', dangers, 'marketplace-finding-danger');
+		renderGroup(parent, 'Active content', dangers, 'marketplace-finding-danger');
 	}
 	if (warnings.length > 0) {
-		renderGroup(parent, 'Do sprawdzenia', warnings, 'marketplace-finding-warning');
+		renderGroup(parent, 'To review', warnings, 'marketplace-finding-warning');
 	}
 }
 
@@ -56,5 +56,5 @@ export function renderConfirmRow(
 			// należy się wyjściu, nie brnięciu dalej.
 			if (warn) button.setWarning();
 		})
-		.addButton((button) => button.setButtonText('Anuluj').setCta().onClick(onCancel));
+		.addButton((button) => button.setButtonText('Cancel').setCta().onClick(onCancel));
 }

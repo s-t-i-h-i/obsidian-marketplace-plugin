@@ -56,7 +56,7 @@ export async function apiRequest(
 		// Zły format wyłapujemy lokalnie: nie ma po co jechać do serwera po 401,
 		// a użytkownik od razu wie, że wkleił nie to co trzeba.
 		if (!TOKEN_RE.test(token)) {
-			throw new UnauthorizedError('Zaloguj się w ustawieniach pluginu');
+			throw new UnauthorizedError('Log in from the plugin settings');
 		}
 		headers.Authorization = `Bearer ${token}`;
 	}
@@ -95,32 +95,32 @@ export function assertSafeApiUrl(raw: string): string {
 	if (!value) {
 		// Nie do zobaczenia przez użytkownika: znaczy tyle, że build nie wstawił
 		// stałej. Komunikat celuje w tego, kto buduje wtyczkę.
-		throw new Error('Adres API nie został wkompilowany - zbuduj wtyczkę ponownie');
+		throw new Error('The API address was not compiled in - rebuild the plugin');
 	}
 
 	let url: URL;
 	try {
 		url = new URL(value);
 	} catch {
-		throw new Error(`Adres API nie jest poprawnym URL-em: ${value}`);
+		throw new Error(`The API address is not a valid URL: ${value}`);
 	}
 
 	if (url.protocol !== 'https:' && !isLocalhost(url.hostname)) {
 		// http:// niesie token otwartym tekstem, a ten nie wygasa - jedno podsłuchanie
 		// w sieci publicznej daje dostęp na zawsze. Localhost zostaje, bo to tryb pracy
 		// z `wrangler dev` i ruch nie opuszcza maszyny.
-		throw new Error('Adres API musi używać https:// (wyjątkiem jest localhost)');
+		throw new Error('The API address must use https:// (localhost is the exception)');
 	}
 
 	// Dane logowania w URL-u trafiłyby do nagłówka Authorization obok naszego tokenu.
 	if (url.username || url.password) {
-		throw new Error('Adres API nie może zawierać nazwy użytkownika ani hasła');
+		throw new Error('The API address cannot contain a username or password');
 	}
 
 	// Ścieżkę doklejamy sami; bazowy adres z własną ścieżką albo zapytaniem
 	// przestawiłby każdy endpoint w nieprzewidziane miejsce.
 	if (url.search || url.hash) {
-		throw new Error('Adres API nie może zawierać parametrów ani kotwicy');
+		throw new Error('The API address cannot contain query parameters or a fragment');
 	}
 
 	return url.origin + url.pathname.replace(/\/+$/, '');
