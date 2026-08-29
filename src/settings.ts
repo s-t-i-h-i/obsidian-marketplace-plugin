@@ -1,13 +1,12 @@
 import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
 import type { TextComponent } from 'obsidian';
 import MarketplacePlugin from './main';
-import { TOKEN_RE, UnauthorizedError, assertSafeApiUrl } from './api/api';
-import { DEFAULT_API_BASE_URL } from './constants';
+import { TOKEN_RE, UnauthorizedError } from './api/api';
+import { API_BASE_URL } from './constants';
 import { closeAccount, createToken, fetchMe, registerAccount, revokeToken } from './api/accountApi';
 import { armButton } from './ui';
 
 export interface MarketplaceSettings {
-	apiBaseUrl: string;
 	/** Token dostępowy. Autor publikacji bierze się z niego, nie z formularza. */
 	token: string;
 	/** Nazwa z serwera - tylko do wyświetlenia. Źródłem prawdy jest /me. */
@@ -18,31 +17,11 @@ export interface MarketplaceSettings {
 }
 
 export const DEFAULT_SETTINGS: MarketplaceSettings = {
-	apiBaseUrl: DEFAULT_API_BASE_URL,
 	token: '',
 	username: '',
 	userId: '',
 	downloadFolder: 'marketplace-downloads'
 };
-
-/**
- * Komunikat o adresie API.
- *
- * Sprawdzamy tą samą funkcją, która blokuje żądanie w api.ts - inaczej ustawienia
- * mówiłyby "w porządku", a publikacja i tak by nie ruszyła. Wcześniej było tu
- * wyłącznie miękkie ostrzeżenie o http://, więc token dalej leciał otwartym tekstem.
- */
-function apiUrlProblem(apiBaseUrl: string): string {
-	const value = apiBaseUrl.trim();
-	if (!value) return '';
-
-	try {
-		assertSafeApiUrl(value);
-	} catch (error) {
-		return error instanceof Error ? error.message : String(error);
-	}
-	return '';
-}
 
 export class MarketplaceSettingTab extends PluginSettingTab {
 	plugin: MarketplacePlugin;
@@ -55,8 +34,6 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
-
-		this.renderConnection(containerEl);
 
 		new Setting(containerEl).setName('Konto').setHeading();
 		if (this.plugin.settings.token) {
@@ -75,33 +52,6 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}),
 			);
-	}
-
-	private renderConnection(containerEl: HTMLElement): void {
-		new Setting(containerEl).setName('Połączenie').setHeading();
-
-		const warning = apiUrlProblem(this.plugin.settings.apiBaseUrl);
-		const setting = new Setting(containerEl)
-			.setName('Adres API')
-			.setDesc(
-				'Bazowy URL serwera marketplace. Zmieniaj tylko wtedy, gdy wiesz, po co - ' +
-					'token leci do tego adresu przy każdej publikacji.',
-			)
-			.addText((text) =>
-				text
-					.setPlaceholder('https://twoj-worker.workers.dev')
-					.setValue(this.plugin.settings.apiBaseUrl)
-					.onChange(async (value) => {
-						this.plugin.settings.apiBaseUrl = value;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		// Ostrzeżenie liczymy tylko przy rysowaniu: przerysowanie w onChange
-		// zabierałoby fokus z pola w trakcie pisania.
-		if (warning) {
-			setting.descEl.createDiv({ cls: 'marketplace-warning', text: warning });
-		}
 	}
 
 	// --- stan bez tokenu ---
@@ -254,9 +204,13 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 		const setting = new Setting(containerEl)
 			.setName(loggedIn ? 'Twój token' : 'Mam już token')
 			.setDesc(
-				loggedIn
+				(loggedIn
 					? 'Zapisz go w bezpiecznym miejscu — bez niego nie wrócisz na konto. Leży otwartym tekstem w data.json wewnątrz vaulta.'
-					: 'Wklej token, żeby wrócić na istniejące konto. Zaczyna się od omp_ i ma 68 znaków.',
+					: 'Wklej token, żeby wrócić na istniejące konto. Zaczyna się od omp_ i ma 68 znaków.') +
+					// Adresu serwera nie da się już zmienić, ale trzeba wiedzieć, dokąd
+					// leci poświadczenie - choćby po to, żeby odróżnić build deweloperski
+					// od produkcyjnego, gdy konto "nie istnieje".
+					` Konto działa na: ${API_BASE_URL}`,
 			)
 			.addText((text) => {
 				input = text;

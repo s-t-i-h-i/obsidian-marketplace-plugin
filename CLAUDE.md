@@ -25,7 +25,11 @@ npm run dev        # watch, w tle na czas całej sesji
 Cmd+R w Obsidianie # przeładowanie
 ```
 
-Backend odpalany osobno, w drugim terminalu, słucha na `http://127.0.0.1:8787` — ten adres jest już wpisany w `data.json` jako `apiBaseUrl`.
+Backend odpalany osobno, w drugim terminalu, słucha na `http://127.0.0.1:8787` — i dokładnie ten adres `npm run dev` wkompilowuje we wtyczkę. Nie ma go w ustawieniach: wybiera go build (`define` w `esbuild.config.mjs`), a `npm run build` podstawia produkcyjnego workera. Gdy port 8787 jest zajęty albo stawiasz własną instancję:
+
+```bash
+MARKETPLACE_API_URL=http://localhost:8788 npm run dev
+```
 
 ## Komendy
 
@@ -70,11 +74,11 @@ menu kontekstowe folderu                  komenda "Open marketplace"
 | Moduł | Odpowiedzialność |
 |---|---|
 | [src/main.ts](src/main.ts) | Wyłącznie cykl życia: komenda `open-marketplace`, pozycja **Publikuj** w menu kontekstowym folderu, rejestracja zakładki ustawień. Trzymaj ten plik mały. |
-| [src/settings.ts](src/settings.ts) | `MarketplaceSettings` = `apiBaseUrl`, `token`, `username`, `userId`, `downloadFolder`. Wartości puste są dozwolone — walidacja dzieje się w miejscu użycia, nie w `onChange`. Zakładka sama się nie przerysowuje: po rejestracji i wylogowaniu trzeba zawołać `this.display()`. |
+| [src/settings.ts](src/settings.ts) | `MarketplaceSettings` = `token`, `username`, `userId`, `downloadFolder` — adresu API tu **nie ma**, jest stałą z builda. Wartości puste są dozwolone — walidacja dzieje się w miejscu użycia, nie w `onChange`. Zakładka sama się nie przerysowuje: po rejestracji i wylogowaniu trzeba zawołać `this.display()`. |
 | [src/api/api.ts](src/api/api.ts) | Jedyna droga do serwera. Skleja URL, wstrzykuje `Authorization`, rozpakowuje `{"error"}` i rozróżnia `UnauthorizedError` od `ApiError`. Zwraca surową odpowiedź — treść czyta wywołujący. |
 | [src/api/accountApi.ts](src/api/accountApi.ts) | `registerAccount()`, `fetchMe()`, `createToken()`, `revokeToken()`, `closeAccount()`. |
 | [src/ui.ts](src/ui.ts) | `armButton()` — dwustopniowe potwierdzenie dla akcji nieodwracalnych. Obsidian nie ma okna potwierdzenia. |
-| [src/constants.ts](src/constants.ts) | `ALLOWED_EXTENSIONS` (jedna lista dla publikacji i instalacji) oraz limity archiwum: rozmiar, liczba plików, głębokość, stopień kompresji. |
+| [src/constants.ts](src/constants.ts) | `API_BASE_URL` (stała wstawiana przez esbuild — patrz mina 23), `ALLOWED_EXTENSIONS` (jedna lista dla publikacji i instalacji) oraz limity archiwum: rozmiar, liczba plików, głębokość, stopień kompresji. |
 | [src/scan.ts](src/scan.ts) | Wykrywanie **aktywnej treści**: bloki wykonywane przez wtyczki (`dataviewjs`, Templater, Execute Code), `<script>`, `<iframe>`, atrybuty zdarzeń, `javascript:`, węzły `link` w canvasie, skrypty w SVG, treść ładowana z sieci. Heurystyka — **ostrzega, nie blokuje**. |
 | [src/review.ts](src/review.ts) | Wspólny widok znalezisk dla obu przepływów. Notice się nie nadaje: znika i nie da się go przewinąć. |
 | [src/files.ts](src/files.ts) | `collectFiles()` schodzi rekurencyjnie po folderze, filtruje po `ALLOWED_EXTENSIONS`, pomija katalogi zaczynające się od kropki. `findBrokenLinks()` czyta **oba** indeksy — `resolvedLinks` (cel poza paczką → `problem: 'outside'`) i `unresolvedLinks` (cel nie istnieje → `'unresolved'`). |
@@ -181,7 +185,7 @@ Rzeczy, które kosztowały czas i nie widać ich z samego kodu.
 
 22. **Rozszerzenia trzeba filtrować w OBIE strony.** Publikowanie brało tylko `ALLOWED_EXTENSIONS`, ale instalacja zapisywała z archiwum cokolwiek — `.js`, `.exe`, pliki bez rozszerzenia i dotfile'y niewidoczne w panelu plików. Asymetria „wolno mniej wysłać, niż wolno przyjąć" jest zawsze błędem, nawet gdy oba końce pisze ta sama osoba.
 
-23. **Adres API to pole tekstowe, czyli wektor phishingu.** Token leci nagłówkiem do adresu z ustawień, więc „ustaw adres na …, żeby dostać paczkę X" oddaje konto. `assertSafeApiUrl()` wymusza `https://` (poza localhostem), odrzuca dane logowania w URL-u i parametry zapytania. Ustawienia i warstwa sieciowa wołają **tę samą** funkcję — inaczej zakładka mówiłaby „w porządku", a żądanie i tak by nie ruszyło.
+23. **Adres API nie jest ustawieniem — wybiera go build.** Dopóki był polem tekstowym, był wektorem phishingu na jedno wklejenie: token leci nagłówkiem pod ten adres, więc „ustaw adres na …, żeby dostać paczkę X" oddawało konto. Dziś `esbuild.config.mjs` podstawia `__API_BASE_URL__` przez `define` (localhost w `npm run dev`, produkcyjny worker w `npm run build`, `MARKETPLACE_API_URL` ponad jednym i drugim), a `src/constants.ts` wystawia to jako `API_BASE_URL`. Kontrola adresu stoi teraz w **dwóch** miejscach i to jest świadome: `assertSafeApiUrl()` w `esbuild.config.mjs` wywala build na złym adresie, bliźniacza funkcja w `api/api.ts` zostaje jako ostatnia bramka i jako normalizacja końcowego ukośnika. Zmieniając warunki, zmień oba — esbuild nie widzi modułów TS-a. Deklaracja `declare const __API_BASE_URL__` siedzi w `constants.ts`, więc sięgnięcie po tę stałą gdziekolwiek indziej nie przejdzie przez `tsc`.
 
 ## Testowanie bez Obsidiana
 
@@ -219,4 +223,4 @@ python3 -c "import zipfile; z=zipfile.ZipFile('/tmp/evil.zip','w'); z.writestr('
 - `main.ts` zostaje wyłącznie cyklem życia; logika idzie do osobnych modułów.
 - `AGENTS.md` w tym repo to ogólne zasady pluginów Obsidiana (z szablonu). Ten plik jest warstwą specyficzną dla projektu — przy sprzeczności wygrywa ten plik.
 - `README.md` jest nadal z szablonu `obsidian-sample-plugin` i **nie opisuje tego projektu**. Nie cytuj go jako źródła prawdy.
-- [docs/publikowanie.md](docs/publikowanie.md) opisuje przepływ **sprzed** przeglądu zawartości: rozdział 6 twierdzi, że `findBrokenLinks()` widzi wyłącznie linki wychodzące poza zestaw, a rozdział 3, że walidacja blokuje publikację przez `Notice`. Jedno i drugie jest już nieaktualne. Reszta (pakowanie, multipart, kodowanie) trzyma się nadal.
+- [docs/publikowanie.md](docs/publikowanie.md) opisuje przepływ **sprzed** przeglądu zawartości: rozdział 6 twierdzi, że `findBrokenLinks()` widzi wyłącznie linki wychodzące poza zestaw, a rozdział 3, że walidacja blokuje publikację przez `Notice`. Rozdziały 8, 11 i 14 czytają adres z `settings.apiBaseUrl` — tego pola już nie ma. Reszta (pakowanie, multipart, kodowanie) trzyma się nadal.

@@ -23,10 +23,6 @@ export function openPublishModal(plugin: MarketplacePlugin, folder: TFolder): vo
 	// Bramki idą przed zbieraniem plików: kazanie użytkownikowi wypełnić formularz,
 	// żeby dopiero potem powiedzieć mu "zaloguj się", to zła kolejność - a przy okazji
 	// nie ma po co przechodzić drzewa folderów.
-	if (!plugin.settings.apiBaseUrl.trim()) {
-		new Notice('Ustaw adres API w ustawieniach pluginu');
-		return;
-	}
 	if (!plugin.settings.token.trim()) {
 		new Notice('Zaloguj się w ustawieniach pluginu, żeby publikować');
 		return;

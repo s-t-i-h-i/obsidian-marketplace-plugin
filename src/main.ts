@@ -37,11 +37,17 @@ export default class MarketplacePlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			(await this.loadData()) as Partial<MarketplaceSettings>,
-		);
+		const stored = ((await this.loadData()) ?? {}) as Record<string, unknown>;
+
+		// Przepisujemy wyłącznie znane klucze zamiast Object.assign: adres API
+		// przeniósł się do kodu, a zapisany kiedyś `apiBaseUrl` siedziałby dalej
+		// w data.json i mylił przy diagnozie ("czemu wtyczka gada z localhostem?").
+		// Nieznane pola znikają przy najbliższym zapisie ustawień.
+		this.settings = { ...DEFAULT_SETTINGS };
+		for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof MarketplaceSettings)[]) {
+			const value = stored[key];
+			if (typeof value === 'string') this.settings[key] = value;
+		}
 	}
 
 	async saveSettings() {

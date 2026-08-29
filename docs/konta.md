@@ -35,13 +35,15 @@ domyślnie go **nie** kasuje.
 
 Ustawienia → *Marketplace Plugin*.
 
-1. **Adres API** — wpisz URL swojego workera. Przy `http://` na innym hoście niż
-   localhost pojawi się czerwone ostrzeżenie: token leciałby wtedy otwartym tekstem.
-2. **Załóż nowe konto** — wpisz nazwę (3–32 znaki, `a-z A-Z 0-9 _ -`) i kliknij
+Adresu serwera nie ustawiasz — jest wkompilowany w wersję wtyczki, którą masz
+zainstalowaną, i widnieje w opisie pola z tokenem. Konta są per serwer: token
+z builda deweloperskiego (localhost) nie zadziała na produkcji i odwrotnie.
+
+1. **Załóż nowe konto** — wpisz nazwę (3–32 znaki, `a-z A-Z 0-9 _ -`) i kliknij
    **Załóż konto**.
-3. Token ląduje w polu **Twój token** i od razu jest zapisany w `data.json`.
+2. Token ląduje w polu **Twój token** i od razu jest zapisany w `data.json`.
    Komunikat zostaje na ekranie, dopóki go nie klikniesz.
-4. **Zapisz token teraz.** Kliknij ikonę oka, żeby go zobaczyć, i ikonę kopiowania,
+3. **Zapisz token teraz.** Kliknij ikonę oka, żeby go zobaczyć, i ikonę kopiowania,
    żeby wrzucić go do menedżera haseł. Serwer nie pokaże go drugi raz.
 
 Nazwy są unikalne bez względu na wielkość liter — jeśli istnieje `adi`, to `ADI`

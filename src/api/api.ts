@@ -1,6 +1,7 @@
 import { requestUrl } from 'obsidian';
 import type { RequestUrlResponse } from 'obsidian';
 import type { MarketplaceSettings } from '../settings';
+import { API_BASE_URL } from '../constants';
 
 /** Format tokenu wydawanego przez serwer: 'omp_' + 64 znaki hex, same małe litery. */
 export const TOKEN_RE = /^omp_[0-9a-f]{64}$/;
@@ -43,7 +44,11 @@ export async function apiRequest(
 	settings: MarketplaceSettings,
 	req: ApiRequest,
 ): Promise<RequestUrlResponse> {
-	const apiBaseUrl = assertSafeApiUrl(settings.apiBaseUrl);
+	// Adres jest stałą z builda, więc nie ma tu już czego bronić przed użytkownikiem.
+	// Kontrola zostaje jako ostatnia bramka i jako normalizacja końcowego slasha;
+	// tę samą listę warunków sprawdza esbuild.config.mjs, zanim adres w ogóle
+	// trafi do main.js.
+	const apiBaseUrl = assertSafeApiUrl(API_BASE_URL);
 
 	const headers: Record<string, string> = {};
 	if (req.auth) {
@@ -79,15 +84,18 @@ export async function apiRequest(
 /**
  * Sprawdza adres serwera, ZANIM poleci do niego token.
  *
- * Adres jest polem tekstowym w ustawieniach, więc jest atakiem socjotechnicznym
+ * Adres był kiedyś polem tekstowym w ustawieniach, czyli atakiem socjotechnicznym
  * na jedno wklejenie: "żeby dostać paczkę X, ustaw adres API na ...". Token leci
- * nagłówkiem przy każdym uwierzytelnionym żądaniu, więc podmiana adresu = oddanie
- * konta. Kontrole są tanie i wykonują się raz na żądanie.
+ * nagłówkiem przy każdym uwierzytelnionym żądaniu, więc podmiana adresu oddawała
+ * konto. Dziś adres pochodzi z builda, a ta sama lista warunków stoi w
+ * esbuild.config.mjs - tutaj zostaje jako ostatnia bramka i jako normalizacja.
  */
 export function assertSafeApiUrl(raw: string): string {
 	const value = raw.trim();
 	if (!value) {
-		throw new Error('Ustaw adres API w ustawieniach pluginu');
+		// Nie do zobaczenia przez użytkownika: znaczy tyle, że build nie wstawił
+		// stałej. Komunikat celuje w tego, kto buduje wtyczkę.
+		throw new Error('Adres API nie został wkompilowany - zbuduj wtyczkę ponownie');
 	}
 
 	let url: URL;

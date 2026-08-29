@@ -2,14 +2,19 @@
 export const ALLOWED_EXTENSIONS = ['md', 'canvas', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'];
 
 /**
- * Domyślny adres marketplace'u.
+ * Adres marketplace'u, wstawiany przez esbuild (`define` w esbuild.config.mjs).
  *
- * Pusty do czasu wdrożenia produkcyjnego workera — wtedy wpisz tu adres https://.
- * Sens tej stałej jest taki, że zwykły użytkownik nie powinien wpisywać adresu API
- * ręcznie: pole tekstowe, w które da się wkleić cudzy serwer, to gotowy phishing
- * na token (patrz `assertSafeApiUrl` w api/api.ts).
+ * `npm run dev` wkompilowuje localhost, `npm run build` produkcyjnego workera,
+ * a zmienna MARKETPLACE_API_URL nadpisuje jedno i drugie. W ustawieniach tego
+ * nie ma świadomie: token leci nagłówkiem pod ten adres, więc pole tekstowe,
+ * w które da się wkleić cudzy serwer, było gotowym phishingiem na konto (mina 23).
+ *
+ * Deklaracja stoi tutaj, a nie w osobnym .d.ts, żeby stała i jej jedyne źródło
+ * były w jednym miejscu - użycie `__API_BASE_URL__` gdziekolwiek indziej nie
+ * przejdzie przez tsc.
  */
-export const DEFAULT_API_BASE_URL = '';
+declare const __API_BASE_URL__: string;
+export const API_BASE_URL = __API_BASE_URL__;
 
 // --- limity archiwum przy pobieraniu ---
 

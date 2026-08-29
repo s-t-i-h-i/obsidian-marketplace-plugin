@@ -10,6 +10,27 @@ if you want to view the source, please visit the github repository of this plugi
 
 const prod = process.argv[2] === 'production';
 
+/**
+ * Adres API wybiera build, a nie użytkownik.
+ *
+ * Pole tekstowe z adresem serwera było wektorem phishingu: token leci nagłówkiem
+ * pod ten adres, więc „ustaw adres na …, żeby dostać paczkę X” oddawało konto
+ * (mina 23). Sensownych wartości są dwie, więc wybiera je tryb budowania:
+ *
+ *   npm run dev    -> localhost, czyli `wrangler dev` w drugim terminalu
+ *   npm run build  -> produkcyjny worker
+ *
+ * MARKETPLACE_API_URL nadpisuje jedno i drugie — potrzebne, gdy 8787 jest zajęty
+ * albo gdy ktoś stawia własną instancję marketplace'u.
+ */
+const DEV_API_URL = 'http://127.0.0.1:8787';
+const PROD_API_URL = 'https://obsidian-marketplace-api.adi-gorniak.workers.dev';
+
+const override = process.env.MARKETPLACE_API_URL?.trim();
+const apiBaseUrl = assertSafeApiUrl(override || (prod ? PROD_API_URL : DEV_API_URL));
+
+console.log(`[marketplace] API: ${apiBaseUrl}${prod ? '' : ' (dev)'}`);
+
 const context = await esbuild.context({
 	banner: {
 		js: banner,
@@ -32,6 +53,11 @@ const context = await esbuild.context({
 		'@lezer/lr',
 		...builtinModules,
 	],
+	// Stała czytana przez src/constants.ts. JSON.stringify, bo `define` podstawia
+	// surowy tekst - bez cudzysłowów adres wylądowałby w kodzie jako wyrażenie.
+	define: {
+		__API_BASE_URL__: JSON.stringify(apiBaseUrl),
+	},
 	format: 'cjs',
 	target: 'es2021',
 	logLevel: 'info',
@@ -46,4 +72,37 @@ if (prod) {
 	process.exit(0);
 } else {
 	await context.watch();
+}
+
+/**
+ * Te same warunki, co `assertSafeApiUrl()` w src/api/api.ts, tyle że w czasie
+ * budowania: literówka w adresie ma wywalić build, a nie pierwsze żądanie
+ * użytkownika. Duplikat jest świadomy — esbuild.config.mjs nie widzi modułów TS-a,
+ * a wciąganie tu bundlera dla trzydziestu linii kosztowałoby więcej, niż daje.
+ *
+ * Zwraca adres znormalizowany (bez końcowego ukośnika), więc do main.js trafia
+ * dokładnie ta postać, którą sklejamy potem ze ścieżką endpointu.
+ */
+function assertSafeApiUrl(raw) {
+	let url;
+	try {
+		url = new URL(raw);
+	} catch {
+		throw new Error(`Adres API nie jest poprawnym URL-em: ${raw}`);
+	}
+
+	const localhost = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(url.hostname);
+	// http:// niesie token otwartym tekstem, a ten nie wygasa. Localhost zostaje,
+	// bo to tryb pracy z `wrangler dev` i ruch nie opuszcza maszyny.
+	if (url.protocol !== 'https:' && !localhost) {
+		throw new Error(`Adres API musi używać https:// (wyjątkiem jest localhost): ${raw}`);
+	}
+	if (url.username || url.password) {
+		throw new Error(`Adres API nie może zawierać nazwy użytkownika ani hasła: ${raw}`);
+	}
+	if (url.search || url.hash) {
+		throw new Error(`Adres API nie może zawierać parametrów ani kotwicy: ${raw}`);
+	}
+
+	return url.origin + url.pathname.replace(/\/+$/, '');
 }

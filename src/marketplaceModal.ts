@@ -22,13 +22,8 @@ const SORT_LABELS: Record<SortKey, string> = {
 
 const ALL_TAGS = '';
 
-/** Sprawdza konfigurację i otwiera bibliotekę paczek. */
+/** Otwiera bibliotekę paczek. Adres serwera jest wkompilowany, nie ma czego sprawdzać. */
 export function openMarketplaceModal(plugin: MarketplacePlugin): void {
-	if (!plugin.settings.apiBaseUrl.trim()) {
-		new Notice('Ustaw adres API w ustawieniach pluginu');
-		return;
-	}
-
 	new MarketplaceModal(plugin).open();
 }
 
