@@ -22,7 +22,7 @@ const SORT_LABELS: Record<SortKey, string> = {
 
 const ALL_TAGS = '';
 
-/** Otwiera bibliotekę paczek. Adres serwera jest wkompilowany, nie ma czego sprawdzać. */
+/** Opens the package library. The server address is baked in at build time, nothing to check here. */
 export function openMarketplaceModal(plugin: MarketplacePlugin): void {
 	new MarketplaceModal(plugin).open();
 }
@@ -37,7 +37,7 @@ class MarketplaceModal extends Modal {
 
 	constructor(plugin: MarketplacePlugin) {
 		super(plugin.app);
-		// super() zużywa plugin i go gubi, a ustawienia są potrzebne przy pobieraniu
+		// super() consumes and discards the plugin argument, but settings are needed later for downloads.
 		this.plugin = plugin;
 	}
 
@@ -45,7 +45,7 @@ class MarketplaceModal extends Modal {
 		const { contentEl } = this;
 		contentEl.empty();
 		contentEl.createEl('h2', { text: 'Package library' });
-		// osobny kontener na treść: przerysowujemy tylko jego, nagłówek zostaje
+		// A separate container for the content: only this gets re-rendered, the heading stays.
 		this.bodyEl = contentEl.createDiv();
 
 		void this.load();
@@ -68,13 +68,13 @@ class MarketplaceModal extends Modal {
 		}
 	}
 
-	/** Prosty komunikat na środku - używany przy ładowaniu i pustej bibliotece. */
+	/** A simple centered message, used for loading and empty states. */
 	private renderMessage(text: string) {
 		this.bodyEl.empty();
 		this.bodyEl.createDiv({ text });
 	}
 
-	/** Komunikat błędu z możliwością ponowienia - sieć bywa kapryśna. */
+	/** An error message with a retry button — the network can be flaky. */
 	private renderError(text: string) {
 		this.renderMessage(text);
 		new ButtonComponent(this.bodyEl)
@@ -83,7 +83,7 @@ class MarketplaceModal extends Modal {
 			.onClick(() => void this.load());
 	}
 
-	// --- widok listy ---
+	// --- list view ---
 
 	private renderList() {
 		this.bodyEl.empty();
@@ -108,7 +108,8 @@ class MarketplaceModal extends Modal {
 	}
 
 	private renderToolbar() {
-		// Wszystkie tagi z katalogu, bez powtórzeń - filtr ma pokazywać to, co faktycznie istnieje.
+		// All tags from the catalog, deduplicated — the filter should only
+		// offer tags that actually exist.
 		const tags = [...new Set(this.packages.flatMap((pkg) => pkg.tags))].sort((a, b) =>
 			a.localeCompare(b, 'en'),
 		);
@@ -137,8 +138,8 @@ class MarketplaceModal extends Modal {
 	}
 
 	/**
-	 * Filtrowanie i sortowanie po stronie wtyczki - całą listę i tak mamy już
-	 * w pamięci, więc pytanie serwera o to samo z parametrami byłoby zbędne.
+	 * Filtering and sorting happen client-side — the full list is already in
+	 * memory, so asking the server to do the same work would be pointless.
 	 */
 	private visiblePackages(): Package[] {
 		const filtered = this.tagFilter
@@ -147,13 +148,13 @@ class MarketplaceModal extends Modal {
 
 		return filtered.sort((a, b) => {
 			if (this.sortBy === 'title') return a.title.localeCompare(b.title, 'en');
-			// created_at to ISO-8601, więc zwykłe porównanie tekstów jest chronologiczne
+			// created_at is ISO-8601, so a plain string comparison is chronological
 			if (this.sortBy === 'oldest') return a.createdAt.localeCompare(b.createdAt);
 			return b.createdAt.localeCompare(a.createdAt);
 		});
 	}
 
-	/** Jeden kafelek. Kliknięcie w kafelek otwiera szczegóły. */
+	/** One package card. Clicking it opens the detail view. */
 	private renderCard(grid: HTMLElement, pkg: Package) {
 		const meta = [pkg.author, ...pkg.tags.map((tag) => `#${tag}`)]
 			.filter((part) => part.length > 0)
@@ -169,18 +170,18 @@ class MarketplaceModal extends Modal {
 		card.addEventListener('click', () => void this.showDetail(pkg));
 	}
 
-	// --- widok szczegółów ---
+	// --- detail view ---
 
 	private async showDetail(listed: Package) {
 		this.renderMessage('Loading details...');
 
 		let pkg = listed;
 		try {
-			// lista nie niesie struktury, więc dociągamy pełny rekord
+			// The list doesn't carry the folder structure, so fetch the full record.
 			pkg = await fetchPackage(this.plugin.settings, listed.id);
 		} catch (error) {
 			console.error(error);
-			// brak struktury nie jest powodem, żeby nie pokazać reszty
+			// Missing structure isn't a reason to hide the rest of the detail view.
 			new Notice('Failed to fetch the package structure');
 		}
 
@@ -200,7 +201,7 @@ class MarketplaceModal extends Modal {
 			const tagRow = detail.createDiv({ cls: 'marketplace-tags' });
 			for (const tag of pkg.tags) {
 				const chip = tagRow.createSpan({ cls: 'marketplace-tag', text: `#${tag}` });
-				// kliknięcie w tag wraca do listy już przefiltrowanej
+				// Clicking a tag returns to the list, pre-filtered to it.
 				chip.addEventListener('click', () => {
 					this.tagFilter = tag;
 					this.renderList();
@@ -221,7 +222,7 @@ class MarketplaceModal extends Modal {
 		const download = new ButtonComponent(actions).setButtonText('Download').setCta();
 		download.onClick(() => void this.download(pkg, download));
 
-		// Podpowiedź interfejsu, nie zabezpieczenie - właściciela sprawdza serwer.
+		// A UI hint, not a security check — ownership is verified server-side.
 		if (pkg.authorId && pkg.authorId === this.plugin.settings.userId) {
 			armButton(new ButtonComponent(actions), 'Delete', 'Are you sure?', () => {
 				void this.remove(pkg);
@@ -246,17 +247,19 @@ class MarketplaceModal extends Modal {
 		});
 	}
 
-	// --- akcje ---
+	// --- actions ---
 
 	private async download(pkg: Package, button: ButtonComponent) {
-		// blokada od razu: pobranie trwa, a trzy kliknięcia dałyby trzy kopie paczki
+		// Disable immediately: the download takes time, and three clicks
+		// would create three copies.
 		button.setDisabled(true);
 		button.setButtonText('Downloading...');
 
 		try {
 			const archive = await downloadPackageArchive(this.plugin.settings, pkg.id);
-			// Sprawdzenie i zapis są rozdzielone, bo między nimi może stanąć pytanie
-			// do użytkownika. Do tego momentu w vaulcie nie powstaje żaden plik.
+			// Validation and writing are separate steps because a
+			// confirmation prompt can sit between them. No file exists in
+			// the vault until this point.
 			const plan = await inspectArchive(archive);
 
 			if (plan.findings.length > 0) {
@@ -271,11 +274,12 @@ class MarketplaceModal extends Modal {
 	}
 
 	/**
-	 * Pyta, zanim cudza aktywna treść trafi do vaulta.
+	 * Asks for confirmation before someone else's active content lands in
+	 * the vault.
 	 *
-	 * Paczka to notatki, które ktoś zaraz otworzy - a blok ```dataviewjs albo
-	 * polecenie Templatera wykonuje się na uprawnieniach aplikacji. Użytkownik
-	 * ma to zobaczyć przed zapisem, nie po.
+	 * A package is notes that are about to be opened, and a ```dataviewjs
+	 * block or Templater command runs with the app's full permissions. The
+	 * user needs to see this before the write happens, not after.
 	 */
 	private confirmInstall(pkg: Package, plan: PackagePlan, button: ButtonComponent) {
 		this.bodyEl.empty();
@@ -298,7 +302,7 @@ class MarketplaceModal extends Modal {
 		);
 	}
 
-	/** Zapis do vaulta - jedyne miejsce, w którym powstają pliki. */
+	/** Writes to the vault — the only place files actually get created. */
 	private async write(pkg: Package, plan: PackagePlan, button: ButtonComponent) {
 		try {
 			const folder = await installPlan(
@@ -310,8 +314,8 @@ class MarketplaceModal extends Modal {
 
 			new Notice(`Downloaded to: ${folder}`);
 			void this.showDetail(pkg);
-			// przycisk zostaje zablokowany - drugie kliknięcie zrobiłoby kopię
-			// "Paczka 2", co niemal zawsze jest pomyłką, a nie zamiarem
+			// Leave the button disabled — a second click would create a
+			// "Package 2" copy, which is almost always a mistake, not the intent.
 			button.setButtonText('Downloaded');
 		} catch (error) {
 			this.failDownload(error, button);
@@ -319,11 +323,11 @@ class MarketplaceModal extends Modal {
 	}
 
 	private failDownload(error: unknown, button: ButtonComponent) {
-		// konsola dostaje pełny stack trace, user jedno czytelne zdanie
+		// The console gets the full stack trace, the user gets one readable sentence.
 		console.error(error);
 		new Notice('Download error: ' + (error instanceof Error ? error.message : String(error)));
 
-		// nieudane pobranie nie może zabrać możliwości ponowienia
+		// A failed download shouldn't remove the ability to retry.
 		button.setDisabled(false);
 		button.setButtonText('Download');
 	}
@@ -332,8 +336,8 @@ class MarketplaceModal extends Modal {
 		try {
 			await deletePackage(this.plugin.settings, pkg.id);
 			new Notice(`Deleted: ${pkg.title}`);
-			// przeładowanie zamiast łatania listy na miejscu - widok ma pokazywać
-			// stan serwera, a nie nasze wyobrażenie o nim
+			// Reload instead of patching the list in place — the view
+			// should reflect server state, not our guess at it.
 			void this.load();
 		} catch (error) {
 			console.error(error);
@@ -346,7 +350,7 @@ class MarketplaceModal extends Modal {
 	}
 }
 
-// --- drzewo plików ---
+// --- file tree ---
 
 interface TreeNode {
 	name: string;
@@ -354,7 +358,7 @@ interface TreeNode {
 	isFile: boolean;
 }
 
-/** Płaska lista ścieżek z ZIP-a -> zagnieżdżone drzewo do wyświetlenia. */
+/** Turns a flat list of ZIP paths into a nested tree for display. */
 function buildTree(paths: string[]): TreeNode {
 	const root: TreeNode = { name: '', children: new Map(), isFile: false };
 
@@ -379,7 +383,7 @@ function buildTree(paths: string[]): TreeNode {
 }
 
 function renderNode(parent: HTMLElement, node: TreeNode, depth: number) {
-	// foldery przed plikami, potem alfabetycznie - tak samo jak w eksploratorze Obsidiana
+	// Folders before files, then alphabetical — same order as Obsidian's file explorer.
 	const children = [...node.children.values()].sort((a, b) => {
 		if (a.isFile !== b.isFile) return a.isFile ? 1 : -1;
 		return a.name.localeCompare(b.name, 'en');
@@ -398,7 +402,7 @@ function renderNode(parent: HTMLElement, node: TreeNode, depth: number) {
 	}
 }
 
-/** ISO-8601 -> data w formacie lokalnym. Puste zostaje puste. */
+/** ISO-8601 to a locale-formatted date. Empty stays empty. */
 function formatDate(iso: string): string {
 	if (!iso) return '';
 	const date = new Date(iso);

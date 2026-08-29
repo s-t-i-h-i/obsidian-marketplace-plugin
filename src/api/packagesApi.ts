@@ -1,18 +1,18 @@
 import { apiRequest } from './api';
 import type { MarketplaceSettings } from '../settings';
 
-/** Paczka w postaci, jakiej oczekuje interfejs - pola zawsze istnieją i mają właściwy typ. */
+/** A package in the shape the UI expects — fields always exist and have the right type. */
 export interface Package {
 	id: string;
 	title: string;
 	description: string;
 	author: string;
-	/** Właściciel wg serwera. Puste dla paczek sprzed wprowadzenia kont. */
+	/** Owner according to the server. Empty for packages published before accounts existed. */
 	authorId: string;
 	tags: string[];
 	filename: string;
 	createdAt: string;
-	/** Ścieżki względne plików w archiwum. Puste na liście - wypełnia je fetchPackage(). */
+	/** Relative file paths in the archive. Empty in list results — fetchPackage() fills this in. */
 	structure: string[];
 }
 
@@ -24,8 +24,8 @@ export async function downloadPackageArchive(
 		path: `/download/${encodeURIComponent(id)}`,
 	});
 
-	// Nie sięgamy tu po response.json - to getter robiący JSON.parse, a archiwum
-	// zaczyna się od "PK", więc rzuciłby SyntaxError.
+	// Not using response.json here — it's a getter that calls JSON.parse,
+	// and the archive starts with "PK", so that would throw.
 	if (!response.arrayBuffer || response.arrayBuffer.byteLength === 0) {
 		throw new Error('The downloaded file is empty');
 	}
@@ -34,8 +34,9 @@ export async function downloadPackageArchive(
 }
 
 /**
- * Szczegóły jednej paczki, ze strukturą folderów.
- * Lista celowo tego nie zwraca - przy setce paczek byłby to spory zbędny transfer.
+ * Fetches full package details, including folder structure.
+ * The list endpoint skips this on purpose — with a hundred packages it'd
+ * be a lot of wasted transfer.
  */
 export async function fetchPackage(
 	settings: MarketplaceSettings,
@@ -48,7 +49,7 @@ export async function fetchPackage(
 	return toPackage(response.json);
 }
 
-/** Pobiera listę paczek z serwera marketplace. */
+/** Fetches the package list from the marketplace server. */
 export async function fetchPackages(settings: MarketplaceSettings): Promise<Package[]> {
 	const response = await apiRequest(settings, { path: '/packages' });
 
@@ -60,7 +61,7 @@ export async function fetchPackages(settings: MarketplaceSettings): Promise<Pack
 	return data.map(toPackage);
 }
 
-/** Usuwa własną paczkę. Właściciela i tak weryfikuje serwer. */
+/** Deletes one of your own packages. Ownership is verified server-side anyway. */
 export async function deletePackage(
 	settings: MarketplaceSettings,
 	id: string,
@@ -72,7 +73,7 @@ export async function deletePackage(
 	});
 }
 
-/** Zamienia surowy wiersz z bazy na bezpieczny obiekt Package. */
+/** Converts a raw database row into a safe Package object. */
 function toPackage(raw: unknown): Package {
 	const row = (raw ?? {}) as Record<string, unknown>;
 	return {
@@ -80,7 +81,7 @@ function toPackage(raw: unknown): Package {
 		title: asText(row.title) || '(untitled)',
 		description: asText(row.description),
 		author: asText(row.author),
-		// paczki zastane mają author_id = null, a asText() robi z tego pusty string
+		// legacy packages have author_id = null, and asText() turns that into an empty string
 		authorId: asText(row.author_id),
 		tags: toTags(row.tags),
 		filename: asText(row.filename),
@@ -89,7 +90,7 @@ function toPackage(raw: unknown): Package {
 	};
 }
 
-/** `structure` przychodzi jako JSON-owa tablica ścieżek w tekście. */
+/** `structure` arrives as a JSON array of paths, serialized as text. */
 function toStructure(value: unknown): string[] {
 	if (typeof value !== 'string' || !value) return [];
 
@@ -98,19 +99,19 @@ function toStructure(value: unknown): string[] {
 		if (!Array.isArray(parsed)) return [];
 		return parsed.filter((entry): entry is string => typeof entry === 'string');
 	} catch {
-		// uszkodzony JSON to powód, żeby nie pokazać drzewa - nie żeby wywalić listę
+		// malformed JSON just means no tree to show — not a reason to fail the whole list
 		return [];
 	}
 }
 
-/** Liczby z SQLite zamienia na tekst, wszystko inne (null, undefined) na pusty string. */
+/** Converts SQLite numbers to text; everything else (null, undefined) becomes an empty string. */
 function asText(value: unknown): string {
 	if (typeof value === 'string') return value;
 	if (typeof value === 'number') return String(value);
 	return '';
 }
 
-/** `tags` przychodzi jako "ts,nauka" - rozbijamy na tablicę i czyścimy puste. */
+/** `tags` arrives as "ts,notes" — split into an array and drop empty entries. */
 function toTags(value: unknown): string[] {
 	const list = Array.isArray(value) ? value.map(asText) : asText(value).split(',');
 	return list.map((tag) => tag.trim()).filter((tag) => tag.length > 0);

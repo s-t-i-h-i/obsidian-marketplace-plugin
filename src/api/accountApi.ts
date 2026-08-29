@@ -4,11 +4,11 @@ import type { MarketplaceSettings } from '../settings';
 export interface Account {
 	userId: string;
 	username: string;
-	/** Ile tokenów ma konto - żeby ostrzec przed unieważnieniem ostatniego. */
+	/** How many tokens the account has, so the UI can warn before revoking the last one. */
 	tokens: number;
 }
 
-/** Zakłada konto i zwraca token. Serwer pokazuje go dokładnie raz. */
+/** Registers an account and returns the token. The server shows it exactly once. */
 export async function registerAccount(
 	settings: MarketplaceSettings,
 	username: string,
@@ -33,7 +33,7 @@ export async function registerAccount(
 	};
 }
 
-/** Sprawdza, czy token nadal działa, i kim według serwera jesteśmy. */
+/** Checks whether the token still works, and who the server thinks we are. */
 export async function fetchMe(settings: MarketplaceSettings): Promise<Account> {
 	const response = await apiRequest(settings, { path: '/me', auth: true });
 
@@ -45,16 +45,17 @@ export async function fetchMe(settings: MarketplaceSettings): Promise<Account> {
 	};
 }
 
-/** Unieważnia bieżący token po stronie serwera. */
+/** Revokes the current token on the server. */
 export async function revokeToken(settings: MarketplaceSettings): Promise<void> {
 	await apiRequest(settings, { path: '/tokens', method: 'DELETE', auth: true });
 }
 
 /**
- * Wydaje dodatkowy token dla zalogowanego konta.
+ * Issues an additional token for the logged-in account.
  *
- * To jest warunek sensownej rotacji: żeby unieważnić skradziony token, trzeba
- * najpierw mieć czym się zalogować później. Bez tego "unieważnij" = "strać konto".
+ * This is what makes rotation possible: revoking a stolen token only makes
+ * sense if you have another one to log back in with. Without it, "revoke"
+ * would mean "lose the account".
  */
 export async function createToken(
 	settings: MarketplaceSettings,
@@ -74,7 +75,7 @@ export async function createToken(
 	return data.token;
 }
 
-/** Kasuje konto razem ze wszystkimi jego paczkami. Nieodwracalne. */
+/** Deletes the account along with all its packages. Irreversible. */
 export async function closeAccount(settings: MarketplaceSettings): Promise<number> {
 	const response = await apiRequest(settings, {
 		path: '/account',

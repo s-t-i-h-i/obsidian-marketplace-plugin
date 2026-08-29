@@ -7,11 +7,11 @@ import { closeAccount, createToken, fetchMe, registerAccount, revokeToken } from
 import { armButton } from './ui';
 
 export interface MarketplaceSettings {
-	/** Token dostępowy. Autor publikacji bierze się z niego, nie z formularza. */
+	/** Access token. The publish author comes from this, never from a form field. */
 	token: string;
-	/** Nazwa z serwera - tylko do wyświetlenia. Źródłem prawdy jest /me. */
+	/** Username from the server, for display only — /me is the source of truth. */
 	username: string;
-	/** Porównywane z author_id paczki, żeby pokazać "Usuń" tylko przy swoich. */
+	/** Compared against a package's author_id to show "Delete" only on your own packages. */
 	userId: string;
 	downloadFolder: string;
 }
@@ -54,7 +54,7 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 			);
 	}
 
-	// --- stan bez tokenu ---
+	// --- logged out ---
 
 	private renderLoggedOut(containerEl: HTMLElement): void {
 		let username = '';
@@ -91,7 +91,7 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 		this.renderTokenField(containerEl, false);
 	}
 
-	// --- stan z tokenem ---
+	// --- logged in ---
 
 	private renderLoggedIn(containerEl: HTMLElement): void {
 		const who = this.plugin.settings.username || '(unknown name)';
@@ -114,7 +114,8 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 
 		this.renderTokenField(containerEl, true);
 
-		// Zwykłe wyjście: nic nie niszczy, więc stoi obok normalnych ustawień.
+		// A reversible action, so it lives next to the regular settings, not
+		// in the danger zone below.
 		new Setting(containerEl)
 			.setName('Log out on this device')
 			.setDesc('Removes the token only here. The token stays valid — paste it back in to return to the account.')
@@ -129,7 +130,7 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 		this.renderDangerZone(containerEl);
 	}
 
-	/** Akcje nieodwracalne trzymamy osobno, żeby nie stały obok codziennych. */
+	/** Irreversible actions live in their own section, away from everyday ones. */
 	private renderDangerZone(containerEl: HTMLElement): void {
 		new Setting(containerEl).setName('Advanced').setHeading();
 
@@ -140,8 +141,8 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 				button.setButtonText('Issue new').onClick(async () => {
 					try {
 						const token = await createToken(this.plugin.settings, 'obsidian');
-						// Ten token nigdzie się nie zapisuje, więc musi być widoczny na ekranie
-						// nawet wtedy, gdy schowek zawiedzie.
+						// This token isn't saved anywhere, so it must stay
+						// visible on screen even if the clipboard copy fails.
 						new Notice(`New token — save it now:\n${token}`, 0);
 						await this.copy(token, 'New token');
 					} catch (error) {
@@ -163,8 +164,9 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 							console.error(error);
 							new Notice('Failed to revoke on the server, removing locally.');
 						}
-						// Czyścimy lokalnie także przy błędzie: inaczej w vaulcie zostałby
-						// token, który użytkownik uważa za usunięty.
+						// Clear the local token even if the server call
+						// failed — otherwise the user thinks it's revoked
+						// when it still works.
 						await this.forgetIdentity();
 						this.display();
 					})();
@@ -191,12 +193,12 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 	}
 
 	/**
-	 * Pole tokenu.
+	 * The token input field.
 	 *
-	 * Uwaga: callback `addText()` wykonuje się synchronicznie w trakcie łańcucha,
-	 * więc NIE wolno w nim sięgać po `const setting` — zmienna jeszcze nie istnieje
-	 * i leci "Cannot access ... before initialization". Dlatego komponent zapamiętujemy
-	 * w `input`, a przyciski dokładamy dopiero po domknięciu łańcucha.
+	 * `addText()`'s callback runs synchronously while the `Setting` chain is
+	 * still being built, so it can't reference `const setting` yet — that
+	 * throws "Cannot access before initialization". The component is stored
+	 * in `input` instead, and extra buttons are added after the chain ends.
 	 */
 	private renderTokenField(containerEl: HTMLElement, loggedIn: boolean): void {
 		let input: TextComponent | null = null;
@@ -207,14 +209,14 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 				(loggedIn
 					? 'Save it somewhere safe — without it you cannot get back into the account. It sits as plain text in data.json inside the vault.'
 					: 'Paste a token to return to an existing account. It starts with omp_ and is 68 characters long.') +
-					// Adresu serwera nie da się już zmienić, ale trzeba wiedzieć, dokąd
-					// leci poświadczenie - choćby po to, żeby odróżnić build deweloperski
-					// od produkcyjnego, gdy konto "nie istnieje".
+					// The server address can't be changed anymore, but it's
+					// still useful to see where the token is going — e.g. to
+					// tell a dev build apart from production.
 					` Account runs on: ${API_BASE_URL}`,
 			)
 			.addText((text) => {
 				input = text;
-				text.inputEl.type = 'password'; // maskowanie w UI
+				text.inputEl.type = 'password'; // mask it in the UI
 				text
 					.setPlaceholder('Paste token')
 					.setValue(this.plugin.settings.token)
@@ -222,8 +224,9 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 						const token = value.trim();
 						this.plugin.settings.token = token;
 
-						// Wklejenie innego tokenu unieważnia zapamiętaną tożsamość — inaczej
-						// "Usuń" pokazywałoby się przy paczkach poprzedniego konta.
+						// Pasting a different token clears the cached
+						// identity — otherwise "Delete" would still show up
+						// on the previous account's packages.
 						if (!TOKEN_RE.test(token)) {
 							this.plugin.settings.username = '';
 							this.plugin.settings.userId = '';
@@ -232,8 +235,8 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 					});
 			});
 
-		// Bez podglądu użytkownik nie ma jak zapisać własnego tokenu,
-		// a bez zapisanego tokenu każde wylogowanie byłoby jednokierunkowe.
+		// Without a reveal button there's no way to copy down a pasted
+		// token, and without a saved copy, logging out would be a one-way trip.
 		setting.addExtraButton((extra) =>
 			extra
 				.setIcon('eye')
@@ -272,9 +275,9 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 		}
 	}
 
-	// --- pomocnicze ---
+	// --- helpers ---
 
-	/** Serwer jest źródłem prawdy o tożsamości — lokalna kopia tylko za nim nadąża. */
+	/** The server is the source of truth for identity; the local copy just tracks it. */
 	private async rememberIdentity(account: { username: string; userId: string }): Promise<void> {
 		this.plugin.settings.username = account.username;
 		this.plugin.settings.userId = account.userId;
@@ -288,7 +291,7 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 		await this.plugin.saveSettings();
 	}
 
-	/** Schowek bywa niedostępny, a cicha porażka przy kopiowaniu tokenu boli. */
+	/** The clipboard can be unavailable, and failing silently here would be painful. */
 	private async copy(value: string, label: string): Promise<void> {
 		try {
 			await navigator.clipboard.writeText(value);

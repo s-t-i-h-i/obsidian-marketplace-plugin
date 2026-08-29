@@ -1,12 +1,12 @@
 import { ButtonComponent } from 'obsidian';
 
 /**
- * Dwustopniowe potwierdzenie dla nieodwracalnych akcji.
+ * Two-step confirmation for irreversible actions.
  *
- * Obsidian nie ma wbudowanego okna potwierdzenia, a osobny Modal dla każdego
- * "na pewno?" byłby cięższy niż sama akcja. Pierwsze kliknięcie uzbraja przycisk,
- * drugie wykonuje. Uzbrojenie samo wygasa - przycisk kasujący, który został
- * gotowy na zawsze, to pułapka.
+ * Obsidian has no built-in confirm dialog, and a separate Modal for every
+ * "are you sure?" would be heavier than the action itself. The first click
+ * arms the button, the second fires it. Arming expires on its own — a
+ * delete button left armed forever is a trap waiting for a stray click.
  */
 export function armButton(
 	button: ButtonComponent,
@@ -33,7 +33,7 @@ export function armButton(
 		button.setWarning().setButtonText(confirmLabel);
 
 		window.setTimeout(() => {
-			// przycisk mógł zniknąć razem z przerysowaną zakładką
+			// The button may have been removed if the tab was re-rendered.
 			if (button.buttonEl.isConnected) disarm();
 		}, 4000);
 	});

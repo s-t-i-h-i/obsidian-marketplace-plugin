@@ -12,14 +12,14 @@ export default class MarketplacePlugin extends Plugin {
 
 	async onload() {
 		await this.loadSettings();
-		// komenda do otwierania marketplace
+
 		this.addCommand({
 			id: 'open-marketplace',
 			name: 'Open marketplace',
 			callback: () => openMarketplaceModal(this),
 		});
 
-		// pozycja "Publikuj" w menu kontekstowym folderu w panelu plików
+		// Adds "Publish" to a folder's right-click menu.
 		this.registerEvent(
 			this.app.workspace.on('file-menu', (menu, file) => {
 				if (!(file instanceof TFolder)) return;
@@ -39,10 +39,9 @@ export default class MarketplacePlugin extends Plugin {
 	async loadSettings() {
 		const stored = ((await this.loadData()) ?? {}) as Record<string, unknown>;
 
-		// Przepisujemy wyłącznie znane klucze zamiast Object.assign: adres API
-		// przeniósł się do kodu, a zapisany kiedyś `apiBaseUrl` siedziałby dalej
-		// w data.json i mylił przy diagnozie ("czemu wtyczka gada z localhostem?").
-		// Nieznane pola znikają przy najbliższym zapisie ustawień.
+		// Copy only known keys instead of Object.assign: the API address used
+		// to be a setting, and an old data.json could still have that field.
+		// A blind copy would keep it around forever.
 		this.settings = { ...DEFAULT_SETTINGS };
 		for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof MarketplaceSettings)[]) {
 			const value = stored[key];

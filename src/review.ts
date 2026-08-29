@@ -2,11 +2,11 @@ import { Setting } from 'obsidian';
 import type { Finding } from './scan';
 
 /**
- * Wspólny sposób pokazywania znalezisk skanera.
+ * Shared UI for showing scanner findings.
  *
- * Notice się do tego nie nadaje: znika po kilku sekundach, nie ma paska
- * przewijania i przy dwudziestu trafieniach zasłania pół ekranu. A to jest
- * dokładnie ten moment, w którym użytkownik ma coś przeczytać i zdecydować.
+ * A `Notice` won't do — it disappears after a few seconds, doesn't scroll,
+ * and twenty findings would fill half the screen. This is exactly the
+ * moment the user needs to actually read something and decide.
  */
 export function renderFindings(parent: HTMLElement, findings: Finding[]): void {
 	const dangers = findings.filter((finding) => finding.severity === 'danger');
@@ -34,14 +34,14 @@ function renderGroup(
 		row.createDiv({ cls: 'marketplace-finding-label', text: finding.label });
 		row.createDiv({ cls: 'marketplace-finding-path', text: finding.path });
 		if (finding.sample) {
-			// Fragment wstawiamy jako TEKST, nigdy jako HTML - to jest przecież
-			// treść, którą właśnie oskarżamy o bycie kodem.
+			// Insert the snippet as text, never HTML — it's literally the
+			// content we're flagging as code.
 			row.createEl('code', { cls: 'marketplace-finding-sample', text: finding.sample });
 		}
 	}
 }
 
-/** Przycisk potwierdzenia i anulowania w jednym rzędzie. */
+/** A confirm/cancel button pair in one row. */
 export function renderConfirmRow(
 	parent: HTMLElement,
 	confirmLabel: string,
@@ -52,8 +52,8 @@ export function renderConfirmRow(
 	new Setting(parent)
 		.addButton((button) => {
 			button.setButtonText(confirmLabel).onClick(onConfirm);
-			// Groźna akcja nie dostaje przycisku "call to action" - wyróżnienie
-			// należy się wyjściu, nie brnięciu dalej.
+			// A risky action doesn't get the call-to-action style — that
+			// emphasis belongs to backing out, not going through with it.
 			if (warn) button.setWarning();
 		})
 		.addButton((button) => button.setButtonText('Cancel').setCta().onClick(onCancel));

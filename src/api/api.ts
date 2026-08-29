@@ -3,16 +3,16 @@ import type { RequestUrlResponse } from 'obsidian';
 import type { MarketplaceSettings } from '../settings';
 import { API_BASE_URL } from '../constants';
 
-/** Format tokenu wydawanego przez serwer: 'omp_' + 64 znaki hex, same małe litery. */
+/** Token format issued by the server: 'omp_' + 64 lowercase hex characters. */
 export const TOKEN_RE = /^omp_[0-9a-f]{64}$/;
 
 /**
- * Serwer odrzucił token (albo nie mamy go wcale). Osobna klasa, bo interfejs
- * musi odróżnić "zaloguj się" od zwykłej awarii sieci.
+ * The server rejected the token, or we don't have one. A separate class so
+ * the UI can tell "log in" apart from a plain network failure.
  */
 export class UnauthorizedError extends Error {}
 
-/** Każdy inny błąd HTTP - status zostaje, żeby wywołujący mógł zareagować. */
+/** Any other HTTP error — the status is kept so callers can react to it. */
 export class ApiError extends Error {
 	readonly status: number;
 
@@ -27,34 +27,34 @@ interface ApiRequest {
 	method?: 'GET' | 'POST' | 'DELETE';
 	contentType?: string;
 	body?: string | ArrayBuffer;
-	/** Dokleja nagłówek Authorization i wymaga poprawnego tokenu. */
+	/** Attaches the Authorization header and requires a valid token. */
 	auth?: boolean;
 }
 
 /**
- * Jedno miejsce, przez które przechodzą wszystkie żądania do marketplace'u.
- * Wcześniej obcinanie końcowego slasha, `throw: false` i sprawdzanie statusu
- * były przepisane w trzech kopiach, a publishApi.ts jako jedyny nie rozpakowywał
- * komunikatu błędu i pokazywał użytkownikowi surowy JSON.
+ * The single place every marketplace request goes through, so
+ * trailing-slash handling, `throw: false`, and status checks live once
+ * instead of being copy-pasted per call site.
  *
- * Zwraca surową odpowiedź: treść czyta wywołujący, bo `response.json` to getter
- * robiący JSON.parse - na archiwum ZIP zaczynającym się od "PK" rzuciłby wyjątkiem.
+ * Returns the raw response — callers read the body themselves, because
+ * `response.json` is a getter that calls JSON.parse, and that throws on a
+ * ZIP archive starting with "PK".
  */
 export async function apiRequest(
 	settings: MarketplaceSettings,
 	req: ApiRequest,
 ): Promise<RequestUrlResponse> {
-	// Adres jest stałą z builda, więc nie ma tu już czego bronić przed użytkownikiem.
-	// Kontrola zostaje jako ostatnia bramka i jako normalizacja końcowego slasha;
-	// tę samą listę warunków sprawdza esbuild.config.mjs, zanim adres w ogóle
-	// trafi do main.js.
+	// The address is a build-time constant now, so there's nothing left to
+	// defend against here. This just normalizes the trailing slash and acts
+	// as a last line of defense — esbuild.config.mjs runs the same checks
+	// before this address ever reaches main.js.
 	const apiBaseUrl = assertSafeApiUrl(API_BASE_URL);
 
 	const headers: Record<string, string> = {};
 	if (req.auth) {
 		const token = settings.token.trim();
-		// Zły format wyłapujemy lokalnie: nie ma po co jechać do serwera po 401,
-		// a użytkownik od razu wie, że wkleił nie to co trzeba.
+		// Catch a malformed token locally — no point making a round trip
+		// for a 401 when the user can be told immediately what's wrong.
 		if (!TOKEN_RE.test(token)) {
 			throw new UnauthorizedError('Log in from the plugin settings');
 		}
@@ -67,7 +67,7 @@ export async function apiRequest(
 		...(req.contentType ? { contentType: req.contentType } : {}),
 		...(req.body ? { body: req.body } : {}),
 		headers,
-		// domyślnie requestUrl rzuca wyjątkiem i gubi treść odpowiedzi serwera
+		// requestUrl throws by default and discards the server's response body
 		throw: false,
 	});
 
@@ -82,19 +82,19 @@ export async function apiRequest(
 }
 
 /**
- * Sprawdza adres serwera, ZANIM poleci do niego token.
+ * Validates the server address before the token is sent to it.
  *
- * Adres był kiedyś polem tekstowym w ustawieniach, czyli atakiem socjotechnicznym
- * na jedno wklejenie: "żeby dostać paczkę X, ustaw adres API na ...". Token leci
- * nagłówkiem przy każdym uwierzytelnionym żądaniu, więc podmiana adresu oddawała
- * konto. Dziś adres pochodzi z builda, a ta sama lista warunków stoi w
- * esbuild.config.mjs - tutaj zostaje jako ostatnia bramka i jako normalizacja.
+ * This used to be a settings field, which made it a one-message phishing
+ * vector: "set the API address to ... to get package X" would hand over
+ * the account, since the token rides along on every authenticated request.
+ * The address now comes from the build; this check stays as a last line of
+ * defense and to normalize the trailing slash.
  */
 export function assertSafeApiUrl(raw: string): string {
 	const value = raw.trim();
 	if (!value) {
-		// Nie do zobaczenia przez użytkownika: znaczy tyle, że build nie wstawił
-		// stałej. Komunikat celuje w tego, kto buduje wtyczkę.
+		// A user should never see this — it means the build didn't inject
+		// the constant. The message is aimed at whoever is building the plugin.
 		throw new Error('The API address was not compiled in - rebuild the plugin');
 	}
 
@@ -106,19 +106,20 @@ export function assertSafeApiUrl(raw: string): string {
 	}
 
 	if (url.protocol !== 'https:' && !isLocalhost(url.hostname)) {
-		// http:// niesie token otwartym tekstem, a ten nie wygasa - jedno podsłuchanie
-		// w sieci publicznej daje dostęp na zawsze. Localhost zostaje, bo to tryb pracy
-		// z `wrangler dev` i ruch nie opuszcza maszyny.
+		// http:// sends the token in plaintext, and it never expires — one
+		// sniff on a public network gives permanent access. Localhost is
+		// exempt because that's just `wrangler dev`, and the traffic never
+		// leaves the machine.
 		throw new Error('The API address must use https:// (localhost is the exception)');
 	}
 
-	// Dane logowania w URL-u trafiłyby do nagłówka Authorization obok naszego tokenu.
+	// Credentials in the URL would end up alongside our token in the Authorization header.
 	if (url.username || url.password) {
 		throw new Error('The API address cannot contain a username or password');
 	}
 
-	// Ścieżkę doklejamy sami; bazowy adres z własną ścieżką albo zapytaniem
-	// przestawiłby każdy endpoint w nieprzewidziane miejsce.
+	// We append the endpoint path ourselves; a base URL with its own path
+	// or query string would redirect every endpoint somewhere unexpected.
 	if (url.search || url.hash) {
 		throw new Error('The API address cannot contain query parameters or a fragment');
 	}
@@ -130,7 +131,7 @@ function isLocalhost(hostname: string): boolean {
 	return ['localhost', '127.0.0.1', '::1', '[::1]'].includes(hostname);
 }
 
-/** Serwer przy błędzie zwraca {"error": "..."} - wyciągamy sam komunikat. */
+/** On error the server returns {"error": "..."} — this pulls out just the message. */
 function extractError(text: string): string {
 	try {
 		const parsed: unknown = JSON.parse(text);
@@ -138,7 +139,7 @@ function extractError(text: string): string {
 			return String(parsed.error);
 		}
 	} catch {
-		// nie JSON - pokażemy surową treść
+		// not JSON — fall back to the raw text
 	}
 	return text;
 }

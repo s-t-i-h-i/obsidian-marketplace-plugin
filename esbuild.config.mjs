@@ -11,17 +11,18 @@ if you want to view the source, please visit the github repository of this plugi
 const prod = process.argv[2] === 'production';
 
 /**
- * Adres API wybiera build, a nie użytkownik.
+ * The build picks the API address, not the user.
  *
- * Pole tekstowe z adresem serwera było wektorem phishingu: token leci nagłówkiem
- * pod ten adres, więc „ustaw adres na …, żeby dostać paczkę X” oddawało konto
- * (mina 23). Sensownych wartości są dwie, więc wybiera je tryb budowania:
+ * A text field for the server address used to be a phishing vector: the
+ * token rides in a header to whatever address is set, so "point it here to
+ * get package X" would hand over the account. There are only two sensible
+ * values, so the build mode picks one:
  *
- *   npm run dev    -> localhost, czyli `wrangler dev` w drugim terminalu
- *   npm run build  -> produkcyjny worker
+ *   npm run dev    -> localhost (run `wrangler dev` in another terminal)
+ *   npm run build  -> the production worker
  *
- * MARKETPLACE_API_URL nadpisuje jedno i drugie — potrzebne, gdy 8787 jest zajęty
- * albo gdy ktoś stawia własną instancję marketplace'u.
+ * MARKETPLACE_API_URL overrides either — useful when 8787 is taken, or when
+ * running a separate marketplace instance.
  */
 const DEV_API_URL = 'http://127.0.0.1:8787';
 const PROD_API_URL = 'https://obsidian-marketplace-api.adi-gorniak.workers.dev';
@@ -53,8 +54,9 @@ const context = await esbuild.context({
 		'@lezer/lr',
 		...builtinModules,
 	],
-	// Stała czytana przez src/constants.ts. JSON.stringify, bo `define` podstawia
-	// surowy tekst - bez cudzysłowów adres wylądowałby w kodzie jako wyrażenie.
+	// Read by src/constants.ts. JSON.stringify because esbuild's `define`
+	// does a raw text substitution — without quotes the address would land
+	// in the code as a bare expression.
 	define: {
 		__API_BASE_URL__: JSON.stringify(apiBaseUrl),
 	},
@@ -75,33 +77,33 @@ if (prod) {
 }
 
 /**
- * Te same warunki, co `assertSafeApiUrl()` w src/api/api.ts, tyle że w czasie
- * budowania: literówka w adresie ma wywalić build, a nie pierwsze żądanie
- * użytkownika. Duplikat jest świadomy — esbuild.config.mjs nie widzi modułów TS-a,
- * a wciąganie tu bundlera dla trzydziestu linii kosztowałoby więcej, niż daje.
+ * Same checks as assertSafeApiUrl() in src/api/api.ts, run at build time
+ * instead: a typo in the address should fail the build, not the user's
+ * first request. The duplication is deliberate — this file can't import TS
+ * modules, and pulling in a bundler for thirty lines isn't worth it.
  *
- * Zwraca adres znormalizowany (bez końcowego ukośnika), więc do main.js trafia
- * dokładnie ta postać, którą sklejamy potem ze ścieżką endpointu.
+ * Returns the address normalized (no trailing slash), so main.js ends up
+ * with exactly the form we later concatenate with each endpoint path.
  */
 function assertSafeApiUrl(raw) {
 	let url;
 	try {
 		url = new URL(raw);
 	} catch {
-		throw new Error(`Adres API nie jest poprawnym URL-em: ${raw}`);
+		throw new Error(`The API address is not a valid URL: ${raw}`);
 	}
 
 	const localhost = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(url.hostname);
-	// http:// niesie token otwartym tekstem, a ten nie wygasa. Localhost zostaje,
-	// bo to tryb pracy z `wrangler dev` i ruch nie opuszcza maszyny.
+	// http:// sends the token in plaintext, and it never expires. Localhost
+	// is exempt — that's wrangler dev, and traffic never leaves the machine.
 	if (url.protocol !== 'https:' && !localhost) {
-		throw new Error(`Adres API musi używać https:// (wyjątkiem jest localhost): ${raw}`);
+		throw new Error(`The API address must use https:// (localhost is the exception): ${raw}`);
 	}
 	if (url.username || url.password) {
-		throw new Error(`Adres API nie może zawierać nazwy użytkownika ani hasła: ${raw}`);
+		throw new Error(`The API address cannot contain a username or password: ${raw}`);
 	}
 	if (url.search || url.hash) {
-		throw new Error(`Adres API nie może zawierać parametrów ani kotwicy: ${raw}`);
+		throw new Error(`The API address cannot contain query parameters or a fragment: ${raw}`);
 	}
 
 	return url.origin + url.pathname.replace(/\/+$/, '');

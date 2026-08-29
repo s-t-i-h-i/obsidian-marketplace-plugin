@@ -15,14 +15,14 @@ const FIELDS: { key: FieldKey; name: string; desc?: string; multiline?: boolean 
 	{ key: 'tags', name: 'Tags', desc: 'Comma-separated' },
 ];
 
-/** Ile problemów wypisujemy, zanim lista przestaje być czytelna. */
+/** How many problems to list before it stops being readable. */
 const MAX_LISTED = 20;
 
-/** Sprawdza konfigurację i folder, i otwiera formularz tylko gdy publikacja ma szansę się udać. */
+/** Checks config and the folder, and only opens the form if publishing could actually succeed. */
 export function openPublishModal(plugin: MarketplacePlugin, folder: TFolder): void {
-	// Bramki idą przed zbieraniem plików: kazanie użytkownikowi wypełnić formularz,
-	// żeby dopiero potem powiedzieć mu "zaloguj się", to zła kolejność - a przy okazji
-	// nie ma po co przechodzić drzewa folderów.
+	// These checks run before collecting files: making the user fill out a
+	// form just to then say "log in" is the wrong order, and there's no
+	// point walking the folder tree either.
 	if (!plugin.settings.token.trim()) {
 		new Notice('Log in from the plugin settings to publish');
 		return;
@@ -34,12 +34,11 @@ export function openPublishModal(plugin: MarketplacePlugin, folder: TFolder): vo
 		return;
 	}
 
-	// lista jedzie dalej do modala, żeby nie liczyć jej drugi raz przy pakowaniu
+	// Pass the file list into the modal so it isn't recomputed when packing.
 	new PublishModal(plugin, folder, files).open();
 }
 
 class PublishModal extends Modal {
-	//private oznacza pole widoczne tylko wewnątrz klasy
 	private plugin: MarketplacePlugin;
 	private folder: TFolder;
 	private files: TFile[];
@@ -68,11 +67,12 @@ class PublishModal extends Modal {
 	}
 
 	/**
-	 * Ekran kontrolny przed formularzem.
+	 * A review screen shown before the form.
 	 *
-	 * Publikowanie wynosi treść z prywatnego vaulta do publicznego katalogu, i to
-	 * jest operacja nieodwracalna w tym sensie, że raz pobranej paczki nikt już nie
-	 * cofnie. Autor ma najpierw zobaczyć, CO wysyła.
+	 * Publishing moves content from a private vault into a public catalog,
+	 * and that's effectively irreversible — once someone downloads a
+	 * package, there's no taking it back. The author sees what they're
+	 * about to send first.
 	 */
 	private async review() {
 		this.bodyEl.empty();
@@ -84,8 +84,8 @@ class PublishModal extends Modal {
 
 		this.bodyEl.empty();
 
-		// Liczba plików i rozmiar na wierzchu: "Publikuj" na korzeniu vaulta
-		// wysyłałoby wszystko, a bez tej informacji nikt by się nie zorientował.
+		// File count and size up front: running "Publish" on the vault root
+		// would send everything, and without this the author wouldn't notice.
 		this.bodyEl.createDiv({
 			cls: 'marketplace-detail-desc',
 			text: `To be sent: ${this.files.length} files, ${formatBytes(bytes)}.`,
@@ -105,9 +105,8 @@ class PublishModal extends Modal {
 			renderFindings(this.bodyEl, findings);
 		}
 
-		// Wcześniej uszkodzone linki blokowały publikację całkowicie, przez Notice
-		// z całą listą sklejoną w jeden napis. To jest ostrzeżenie, a nie błąd -
-		// paczka bywa świadomie niekompletna, a decyzja należy do autora.
+		// This is a warning, not a hard block — a package can be
+		// intentionally incomplete, and it's the author's call.
 		renderConfirmRow(
 			this.bodyEl,
 			'Publish anyway',
@@ -116,13 +115,13 @@ class PublishModal extends Modal {
 		);
 	}
 
-	/** Czyta pliki tekstowe paczki i szuka w nich aktywnej treści. */
+	/** Reads the package's text files and scans them for active content. */
 	private async scanFiles(): Promise<Finding[]> {
 		const findings: Finding[] = [];
 
 		for (const file of this.files) {
 			if (!isScannable(file.path)) continue;
-			// cachedRead, nie read: to tylko odczyt do analizy
+			// cachedRead, not read: this is just for scanning, not editing
 			findings.push(...scanContent(file.path, await this.app.vault.cachedRead(file)));
 		}
 
@@ -223,8 +222,8 @@ class PublishModal extends Modal {
 			this.close();
 		} catch (error) {
 			console.error(error);
-			// Token mógł zostać unieważniony między otwarciem modala a kliknięciem,
-			// więc podpowiadamy ustawienia zamiast pokazywać gołe "401".
+			// The token may have been revoked between opening the modal and
+			// clicking publish, so point at settings instead of showing a bare "401".
 			new Notice(
 				error instanceof UnauthorizedError
 					? 'The server rejected the token. Check the plugin settings.'

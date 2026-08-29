@@ -1,22 +1,22 @@
 import { App, TFile, TFolder } from 'obsidian';
 import { ALLOWED_EXTENSIONS } from './constants';
 
-/** Dlaczego link jest problemem - to rozróżnienie decyduje, co pokazać autorowi. */
+/** Why a link is a problem — this decides what to show the author. */
 export type LinkProblem =
-	/** Cel istnieje w vaulcie, ale zostaje poza paczką. Odbiorca dostanie pusty link. */
+	/** The target exists in the vault but isn't part of the package — a dead link for anyone who installs it. */
 	| 'outside'
-	/** Cel nie istnieje nigdzie. Link był zepsuty już u autora. */
+	/** The target doesn't exist anywhere — already broken for the author. */
 	| 'unresolved';
 
 export interface BrokenLink {
-	source: string; // plik, który linkuje
-	target: string; // plik, do którego linkuje
+	source: string; // the file containing the link
+	target: string; // the link's target
 	problem: LinkProblem;
 }
 
 /**
- * Zbiera pliki o dozwolonych rozszerzeniach z folderu i jego podfolderów.
- * Foldery zaczynające się od "." są pomijane.
+ * Collects files with allowed extensions from a folder and its subfolders.
+ * Folders starting with "." are skipped.
  */
 export function collectFiles(folder: TFolder): TFile[] {
 	const result: TFile[] = [];
@@ -36,18 +36,12 @@ export function collectFiles(folder: TFolder): TFile[] {
 }
 
 /**
- * Znajduje linki, które u odbiorcy paczki nie zadziałają.
+ * Finds links that will be dead for anyone who installs the package.
  *
- * Są dwa źródła i oba są potrzebne:
- *
- * `resolvedLinks` to linki, które u AUTORA prowadzą do istniejącego pliku. Jeśli
- * cel nie wchodzi do paczki, u odbiorcy zostanie martwy link - a przy okazji jest
- * to sygnał, że paczka odwołuje się do czegoś prywatnego.
- *
- * `unresolvedLinks` to linki, które nie prowadzą nigdzie już u autora. Do tej pory
- * nie były sprawdzane w ogóle, więc paczka z `[[NieMaTakiegoPliku]]` publikowała
- * się jako czysta - funkcja nazywała się "findBrokenLinks", a znajdowała wyłącznie
- * linki wychodzące poza zestaw.
+ * Two sources, both needed: `resolvedLinks` are links that resolve for the
+ * author but point outside the package — a sign the package leans on
+ * private notes. `unresolvedLinks` are links that don't resolve even for the
+ * author (e.g. `[[MissingNote]]`) — easy to miss otherwise.
  */
 export function findBrokenLinks(app: App, files: TFile[]): BrokenLink[] {
 	const results: BrokenLink[] = [];
@@ -63,8 +57,8 @@ export function findBrokenLinks(app: App, files: TFile[]): BrokenLink[] {
 			}
 		}
 
-		// Struktura jest ta sama co wyżej: ścieżka pliku -> { tekst linku: ile razy }.
-		// Klucz to jednak surowy tekst linku, a nie ścieżka - bo pliku nie ma.
+		// Same shape as above (path -> { link text: count }), but the key
+		// here is the raw link text, not a path, since there's no file to point at.
 		const unresolved = app.metadataCache.unresolvedLinks[file.path];
 		for (const target in unresolved) {
 			results.push({ source: file.path, target, problem: 'unresolved' });

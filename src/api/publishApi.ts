@@ -10,10 +10,10 @@ export interface PublishMetadata {
 }
 
 /**
- * Pakuje archiwum i wysyła je na serwer marketplace.
+ * Packs the files into an archive and uploads it to the marketplace server.
  *
- * `files` to lista sprawdzona już przez openPublishModal() - dzięki temu
- * publikujemy dokładnie ten zestaw plików, który przeszedł walidację linków.
+ * `files` was already validated by openPublishModal(), so this publishes
+ * exactly the set of files that passed link validation.
  */
 export async function publishFolder(
 	app: App,
@@ -22,9 +22,9 @@ export async function publishFolder(
 	metadata: PublishMetadata,
 	settings: MarketplaceSettings,
 ): Promise<void> {
-	// ścieżka korzenia vaulta to "/", więc nie ma wtedy prefiksu do obcięcia
+	// the vault root's path is "/", so there's no prefix to strip in that case
 	const prefix = folder.isRoot() ? '' : folder.path + '/';
-	// dokładnie te ścieżki trafiają do ZIP-a, więc podgląd na stronie nie skłamie
+	// these exact paths go into the ZIP, so the web preview won't lie
 	const structure = files.map((file) => file.path.slice(prefix.length));
 
 	const archive = await packFolder(app, files, prefix);
@@ -60,14 +60,15 @@ async function upload(
 			description: metadata.description,
 			tags: metadata.tags.join(','),
 			structure: JSON.stringify(structure),
-			// pole "author" znika z formularza - serwer bierze autora z tokenu
+			// no "author" field — the server derives it from the token
 		},
 		filename,
 		archive,
 	);
 
-	// Token idzie nagłówkiem, a nie polem formularza: wartości pól trafiają do ciała
-	// multipart bez cudzysłowów i bez escapowania, więc sekret nie ma czego tam szukać.
+	// The token goes in a header, never a form field: field values land in
+	// the multipart body unquoted and unescaped, so a secret has no
+	// business being there.
 	await apiRequest(settings, {
 		path: '/publish',
 		method: 'POST',
@@ -78,12 +79,12 @@ async function upload(
 }
 
 /**
- * Granica musi być nieodgadywalna.
+ * The multipart boundary must be unguessable.
  *
- * Wcześniej brała się z Date.now(), a wartości pól wstawiamy do ciała surowo -
- * wystarczyło więc, żeby opis paczki zawierał linię `--<granica>`, i dało się
- * domknąć część oraz dokleić własne pola. Losowa granica zamyka to u źródła,
- * bez okaleczania treści: opis dalej może być wielolinijkowy.
+ * It used to come from Date.now(), and field values go into the body raw —
+ * so a package description containing a line like `--<boundary>` could
+ * close a part early and inject extra fields. A random boundary fixes this
+ * at the source without restricting the description's content.
  */
 function randomBoundary(): string {
 	const bytes = new Uint8Array(16);
@@ -94,7 +95,7 @@ function randomBoundary(): string {
 	return `----ObsidianBoundary${hex}`;
 }
 
-/** requestUrl() nie przyjmuje FormData, więc ciało multipart budujemy ręcznie. */
+/** requestUrl() doesn't accept FormData, so the multipart body is built by hand. */
 function buildMultipartBody(
 	boundary: string,
 	fields: Record<string, string>,
@@ -114,7 +115,7 @@ function buildMultipartBody(
 		);
 	}
 
-	// cudzysłów lub nowa linia w nazwie folderu rozwaliłyby nagłówek
+	// a quote or newline in the folder name would break the header
 	const safeFilename = filename.replace(/[\r\n"]/g, '');
 	parts.push(
 		encoder.encode(

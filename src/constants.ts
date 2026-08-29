@@ -1,46 +1,45 @@
-/** Rozszerzenia, które wolno spakować i które wolno rozpakować. Jedna lista dla obu stron. */
+/** Extensions allowed both when packing and unpacking — one shared list for both. */
 export const ALLOWED_EXTENSIONS = ['md', 'canvas', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'];
 
 /**
- * Adres marketplace'u, wstawiany przez esbuild (`define` w esbuild.config.mjs).
+ * The marketplace server address, injected by esbuild's `define` (see
+ * esbuild.config.mjs). `npm run dev` bakes in localhost, `npm run build`
+ * bakes in the production worker, and MARKETPLACE_API_URL overrides either.
+ * It's deliberately not a setting: the token is sent to this address, so a
+ * text field here would let anyone phish it by asking the user to point it
+ * elsewhere.
  *
- * `npm run dev` wkompilowuje localhost, `npm run build` produkcyjnego workera,
- * a zmienna MARKETPLACE_API_URL nadpisuje jedno i drugie. W ustawieniach tego
- * nie ma świadomie: token leci nagłówkiem pod ten adres, więc pole tekstowe,
- * w które da się wkleić cudzy serwer, było gotowym phishingiem na konto (mina 23).
- *
- * Deklaracja stoi tutaj, a nie w osobnym .d.ts, żeby stała i jej jedyne źródło
- * były w jednym miejscu - użycie `__API_BASE_URL__` gdziekolwiek indziej nie
- * przejdzie przez tsc.
+ * Declared here rather than in a separate .d.ts, so this is the only file
+ * that can reference `__API_BASE_URL__` directly — anywhere else it fails
+ * to compile.
  */
 declare const __API_BASE_URL__: string;
 export const API_BASE_URL = __API_BASE_URL__;
 
-// --- limity archiwum przy pobieraniu ---
+// --- archive limits when downloading ---
 
-/** Górna granica samego pliku ZIP. Serwer trzyma 50 MB, zostawiamy zapas. */
+/** Max size of the ZIP file itself. The server caps at 50 MB; this leaves headroom. */
 export const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
 
-/** Ile bajtów wolno zapisać do vaulta po rozpakowaniu. Bez tego 204 kB archiwum robi 200 MB plików. */
+/** Max bytes allowed on disk after unpacking. Without this, a 204 KB archive could unpack to 200 MB. */
 export const MAX_UNCOMPRESSED_BYTES = 200 * 1024 * 1024;
 
 /**
- * Górna granica stosunku "dane po rozpakowaniu : rozmiar archiwum".
+ * Max ratio of unpacked size to archive size.
  *
- * Sam sufit bajtów nie wystarcza: archiwum mieszczące się tuż pod nim wciąż jest
- * bombą, jeśli waży 200 kB. Dobrze ściśnięty tekst osiąga ~10:1, więc 100:1 nie
- * przeszkadza żadnej prawdziwej paczce.
+ * The byte cap alone isn't enough — a tiny archive can still be a zip bomb.
+ * Real text compresses to about 10:1, so 100:1 leaves plenty of room.
  */
 export const MAX_COMPRESSION_RATIO = 100;
 
-/** Ile plików najwyżej. Tyle samo, ile przyjmuje worker. */
+/** Max number of files, matching the limit the worker enforces. */
 export const MAX_ENTRIES = 2000;
 
-/** Długość ścieżki wewnątrz paczki. Windows przewraca się na MAX_PATH ~260 znaków. */
+/** Max path length inside a package. Windows breaks around 260 characters. */
 export const MAX_ENTRY_PATH = 400;
 
-/** Zagnieżdżenie folderów. 300 poziomów to nie struktura kursu, tylko złośliwość. */
+/** Max folder nesting depth. 300 levels isn't a course structure, it's an attack. */
 export const MAX_ENTRY_DEPTH = 32;
 
-/** Nazwa folderu paczki. Systemy plików trzymają limit 255 bajtów na segment. */
+/** Max package folder name length. Filesystems cap path segments at 255 bytes. */
 export const MAX_FOLDER_NAME = 80;

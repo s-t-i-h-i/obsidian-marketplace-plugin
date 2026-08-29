@@ -1,26 +1,24 @@
 /**
- * Wykrywanie aktywnej treści w plikach paczki.
+ * Scans package files for "active" content — code that runs when a note is
+ * opened. Obsidian itself doesn't execute JS from notes, but plugins do:
+ * a ```dataviewjs block or a Templater `<%* %>` command is basically eval
+ * with full app access (the whole vault, plus the network), and it looks
+ * exactly like any other note until you open it.
  *
- * Powód: paczka to nie dane, tylko notatki, które ktoś zaraz otworzy w swoim
- * vaulcie. Sam Obsidian nie wykonuje JS-a z notatki, ale ekosystem wtyczek owszem —
- * blok ```dataviewjs (Dataview) albo `<%* %>` (Templater) to zwykły eval na
- * uprawnieniach aplikacji, czyli dostęp do całego vaulta i do sieci. Notatka z
- * takim blokiem wygląda w podglądzie dokładnie jak każda inna.
- *
- * Skaner jest heurystyczny i ma prawo dawać fałszywe alarmy — dlatego OSTRZEGA,
- * a nie blokuje. Decyzję podejmuje człowiek, który widzi listę znalezisk i wie,
- * czy sam napisał ten dataviewjs, czy dostał go od nieznajomego.
+ * This is a heuristic scanner, so it can false-positive — it warns instead
+ * of blocking, and leaves the decision to the person who can tell whether
+ * they wrote that dataviewjs block themselves.
  */
 
 export type Severity = 'danger' | 'warning';
 
 export interface Finding {
-	/** Ścieżka pliku wewnątrz paczki. */
+	/** File path inside the package. */
 	path: string;
 	severity: Severity;
-	/** Krótka nazwa zagrożenia, pokazywana użytkownikowi. */
+	/** Short, user-facing name for the risk. */
 	label: string;
-	/** Fragment, który wywołał alarm - żeby dało się to samodzielnie ocenić. */
+	/** The snippet that triggered the match, so the user can judge it themselves. */
 	sample: string;
 }
 
@@ -31,13 +29,14 @@ interface Rule {
 }
 
 /**
- * Reguły dla plików tekstowych (.md).
+ * Rules for text files (.md).
  *
- * Wzorce trzymamy proste i bez zagnieżdżonych kwantyfikatorów: to jest kod
- * puszczany na cudzej treści, więc regex z nawrotami byłby własnym DoS-em.
+ * Patterns are kept simple with no nested quantifiers — this regex runs on
+ * content from strangers, so catastrophic backtracking would be a
+ * self-inflicted DoS.
  */
 const MARKDOWN_RULES: Rule[] = [
-	// --- wykonanie kodu ---
+	// --- code execution ---
 	{
 		pattern: /```+\s*(dataviewjs|jsx:|js-engine|meta-bind-js|run-\w+|python|preload)\b/i,
 		severity: 'danger',
@@ -60,7 +59,7 @@ const MARKDOWN_RULES: Rule[] = [
 		label: 'Embedded frame or object (<iframe>/<object>)',
 	},
 	{
-		// on<zdarzenie>= tuż przy znaku - łapie onerror=, onload=, onclick=...
+		// matches on<event>= right after a tag character: onerror=, onload=, onclick=...
 		pattern: /<[a-z][^>\n]{0,200}\son[a-z]{3,15}\s*=/i,
 		severity: 'danger',
 		label: 'HTML event attribute (onerror/onload/...)',
@@ -68,7 +67,7 @@ const MARKDOWN_RULES: Rule[] = [
 	{ pattern: /javascript:/i, severity: 'danger', label: 'javascript: address' },
 	{ pattern: /data:text\/html/i, severity: 'danger', label: 'data:text/html address' },
 
-	// --- treść zdalna i lokalna: nie wykonuje kodu, ale wynosi informacje ---
+	// --- remote/local content: doesn't execute, but leaks information ---
 	{
 		pattern: /!\[[^\]\n]{0,200}\]\(\s*https?:\/\//i,
 		severity: 'warning',
@@ -91,7 +90,7 @@ const MARKDOWN_RULES: Rule[] = [
 	},
 ];
 
-/** SVG to dokument XML, nie obrazek — potrafi nieść skrypt i odwołania do sieci. */
+/** SVG is an XML document, not just an image — it can carry scripts and network calls. */
 const SVG_RULES: Rule[] = [
 	{ pattern: /<script[\s>]/i, severity: 'danger', label: 'Script in SVG file' },
 	{
@@ -108,7 +107,7 @@ const SVG_RULES: Rule[] = [
 	},
 ];
 
-/** Rozszerzenia, których zawartość w ogóle warto czytać. Obrazki rastrowe pomijamy. */
+/** Extensions worth reading at all — raster images are skipped. */
 const SCANNABLE = new Set(['md', 'canvas', 'svg']);
 
 export function isScannable(path: string): boolean {
@@ -116,10 +115,10 @@ export function isScannable(path: string): boolean {
 }
 
 /**
- * Sprawdza zawartość jednego pliku.
+ * Scans one file's contents.
  *
- * `content` to już zdekodowany tekst — dekodowanie zostawiamy wywołującemu,
- * bo przy publikowaniu bierze się z vaulta, a przy instalacji z archiwum.
+ * `content` is already decoded text — decoding is the caller's job, since it
+ * comes from the vault when publishing and from the archive when installing.
  */
 export function scanContent(path: string, content: string): Finding[] {
 	const extension = extensionOf(path);
@@ -136,8 +135,8 @@ function applyRules(path: string, content: string, rules: Rule[]): Finding[] {
 
 	for (const rule of rules) {
 		const match = rule.pattern.exec(content);
-		// Jedno znalezisko na regułę: dwadzieścia obrazków z sieci w jednej notatce
-		// to ta sama decyzja co jeden, a lista ma pozostać czytelna.
+		// One finding per rule: twenty remote images in one note is the same
+		// decision as one, and it keeps the list readable.
 		if (match) {
 			findings.push({
 				path,
@@ -152,10 +151,9 @@ function applyRules(path: string, content: string, rules: Rule[]): Finding[] {
 }
 
 /**
- * Canvas to JSON, nie tekst — regexy dałyby tu fałszywe alarmy z samego opisu węzłów.
- *
- * Interesuje nas jeden typ węzła: `link`, czyli żywe osadzenie strony WWW.
- * Otwarcie takiego canvasu ładuje cudzą stronę wewnątrz aplikacji.
+ * Canvas files are JSON, not free text — regexes here would false-positive
+ * on plain node descriptions. We only care about `link` nodes: a live
+ * embedded web page that loads the moment the canvas is opened.
  */
 function scanCanvas(path: string, content: string): Finding[] {
 	let parsed: unknown;
@@ -187,7 +185,7 @@ function scanCanvas(path: string, content: string): Finding[] {
 	return findings;
 }
 
-/** Kawałek wokół trafienia — bez tego użytkownik musiałby uwierzyć na słowo. */
+/** A snippet around the match, so the user doesn't have to take our word for it. */
 function excerpt(content: string, index: number): string {
 	const start = Math.max(0, index - 20);
 	return content
@@ -201,7 +199,7 @@ function extensionOf(path: string): string {
 	return dot === -1 ? '' : path.slice(dot + 1).toLowerCase();
 }
 
-/** Grupuje znaleziska do komunikatu: najpierw groźne, potem ostrzeżenia. */
+/** Groups findings for display: dangers first, then warnings. */
 export function summarize(findings: Finding[]): { dangers: Finding[]; warnings: Finding[] } {
 	return {
 		dangers: findings.filter((f) => f.severity === 'danger'),
