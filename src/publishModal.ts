@@ -59,6 +59,7 @@ class PublishModal extends Modal {
 	}
 
 	onOpen() {
+		this.modalEl.addClass('marketplace-modal');
 		const { contentEl } = this;
 		contentEl.empty();
 		contentEl.createEl('h2', { text: `Publish: ${this.folder.name}` });
@@ -214,6 +215,10 @@ class PublishModal extends Modal {
 
 		for (const field of FIELDS) {
 			const setting = new Setting(this.bodyEl).setName(field.name);
+			// Label above the field, control stretched full width - the default
+			// two-column Setting row squeezes a description textarea into a
+			// sliver next to its own label.
+			setting.settingEl.addClass('marketplace-wide-field');
 			if (field.desc) setting.setDesc(field.desc);
 
 			const value = this.values[field.key];

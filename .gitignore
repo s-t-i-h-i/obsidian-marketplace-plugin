@@ -20,4 +20,8 @@ data.json
 
 # Exclude macOS Finder (System Explorer) View States
 .DS_Store
-docs/admin.md
+
+# Internal working notes - not meant for the public repo
+docs/
+CLAUDE.md
+AGENTS.md

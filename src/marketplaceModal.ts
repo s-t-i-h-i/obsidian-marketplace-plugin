@@ -42,6 +42,7 @@ class MarketplaceModal extends Modal {
 	}
 
 	onOpen() {
+		this.modalEl.addClass('marketplace-modal');
 		const { contentEl } = this;
 		contentEl.empty();
 		contentEl.createEl('h2', { text: 'Package library' });
