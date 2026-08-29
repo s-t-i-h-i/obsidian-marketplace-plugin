@@ -7,9 +7,10 @@ import {
 	fetchPackage,
 	fetchPackages,
 } from './api/packagesApi';
-import { installPackage } from './installs';
+import { inspectArchive, installPlan, formatBytes, type PackagePlan } from './installs';
 import { UnauthorizedError } from './api/api';
 import { armButton } from './ui';
+import { renderFindings, renderConfirmRow } from './review';
 
 type SortKey = 'newest' | 'oldest' | 'title';
 
@@ -259,28 +260,77 @@ class MarketplaceModal extends Modal {
 
 		try {
 			const archive = await downloadPackageArchive(this.plugin.settings, pkg.id);
-			const folder = await installPackage(
+			// Sprawdzenie i zapis są rozdzielone, bo między nimi może stanąć pytanie
+			// do użytkownika. Do tego momentu w vaulcie nie powstaje żaden plik.
+			const plan = await inspectArchive(archive);
+
+			if (plan.findings.length > 0) {
+				this.confirmInstall(pkg, plan, button);
+				return;
+			}
+
+			await this.write(pkg, plan, button);
+		} catch (error) {
+			this.failDownload(error, button);
+		}
+	}
+
+	/**
+	 * Pyta, zanim cudza aktywna treść trafi do vaulta.
+	 *
+	 * Paczka to notatki, które ktoś zaraz otworzy - a blok ```dataviewjs albo
+	 * polecenie Templatera wykonuje się na uprawnieniach aplikacji. Użytkownik
+	 * ma to zobaczyć przed zapisem, nie po.
+	 */
+	private confirmInstall(pkg: Package, plan: PackagePlan, button: ButtonComponent) {
+		this.bodyEl.empty();
+		this.bodyEl.createEl('h3', { text: `Sprawdź zawartość: ${pkg.title}` });
+		this.bodyEl.createDiv({
+			cls: 'marketplace-detail-desc',
+			text:
+				`Paczka ma ${plan.files.length} plików (${formatBytes(plan.totalBytes)}) i zawiera treść, ` +
+				'która może się wykonać albo połączyć z siecią przy otwarciu notatki. ' +
+				'Instaluj tylko od autora, któremu ufasz.',
+		});
+
+		renderFindings(this.bodyEl, plan.findings);
+
+		renderConfirmRow(
+			this.bodyEl,
+			'Rozumiem, pobierz mimo to',
+			() => void this.write(pkg, plan, button),
+			() => void this.showDetail(pkg),
+		);
+	}
+
+	/** Zapis do vaulta - jedyne miejsce, w którym powstają pliki. */
+	private async write(pkg: Package, plan: PackagePlan, button: ButtonComponent) {
+		try {
+			const folder = await installPlan(
 				this.app,
-				archive,
+				plan,
 				this.plugin.settings.downloadFolder,
 				pkg.title,
 			);
 
 			new Notice(`Pobrano do: ${folder}`);
+			void this.showDetail(pkg);
 			// przycisk zostaje zablokowany - drugie kliknięcie zrobiłoby kopię
 			// "Paczka 2", co niemal zawsze jest pomyłką, a nie zamiarem
 			button.setButtonText('Pobrano');
 		} catch (error) {
-			// konsola dostaje pełny stack trace, user jedno czytelne zdanie
-			console.error(error);
-			new Notice(
-				'Błąd pobierania: ' + (error instanceof Error ? error.message : String(error)),
-			);
-
-			// nieudane pobranie nie może zabrać możliwości ponowienia
-			button.setDisabled(false);
-			button.setButtonText('Pobierz');
+			this.failDownload(error, button);
 		}
+	}
+
+	private failDownload(error: unknown, button: ButtonComponent) {
+		// konsola dostaje pełny stack trace, user jedno czytelne zdanie
+		console.error(error);
+		new Notice('Błąd pobierania: ' + (error instanceof Error ? error.message : String(error)));
+
+		// nieudane pobranie nie może zabrać możliwości ponowienia
+		button.setDisabled(false);
+		button.setButtonText('Pobierz');
 	}
 
 	private async remove(pkg: Package) {

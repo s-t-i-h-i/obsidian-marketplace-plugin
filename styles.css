@@ -109,3 +109,46 @@
 	font-size: var(--font-smaller);
 	margin-top: var(--size-2-2);
 }
+
+/* --- znaleziska skanera treści --- */
+
+.marketplace-findings {
+	max-height: 260px;
+	overflow-y: auto;
+	margin-bottom: 0.75em;
+}
+
+.marketplace-finding {
+	padding: 0.5em 0.7em;
+	margin-bottom: 0.4em;
+	border-radius: var(--radius-s);
+	border-left: 3px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+}
+
+.marketplace-finding-danger {
+	border-left-color: var(--text-error);
+}
+
+.marketplace-finding-warning {
+	border-left-color: var(--text-warning);
+}
+
+.marketplace-finding-label {
+	font-weight: var(--font-semibold);
+}
+
+.marketplace-finding-path {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+/* Fragment podejrzanej treści: łamiemy długie linie, żeby nie rozpychał modala. */
+.marketplace-finding-sample {
+	display: block;
+	margin-top: 0.35em;
+	font-size: var(--font-ui-smaller);
+	white-space: pre-wrap;
+	word-break: break-all;
+	color: var(--text-muted);
+}

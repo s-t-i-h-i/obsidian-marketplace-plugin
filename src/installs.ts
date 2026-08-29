@@ -1,6 +1,17 @@
 import { App, normalizePath } from 'obsidian';
 import JSZip from 'jszip';
 import { DEFAULT_SETTINGS } from './settings';
+import {
+	ALLOWED_EXTENSIONS,
+	MAX_ARCHIVE_BYTES,
+	MAX_ENTRIES,
+	MAX_ENTRY_DEPTH,
+	MAX_ENTRY_PATH,
+	MAX_FOLDER_NAME,
+	MAX_COMPRESSION_RATIO,
+	MAX_UNCOMPRESSED_BYTES,
+} from './constants';
+import { isScannable, scanContent, type Finding } from './scan';
 
 /**
  * Znaki, których nie wolno wpuścić do nazwy folderu.
@@ -9,6 +20,34 @@ import { DEFAULT_SETTINGS } from './settings';
  * druga (# ^ [ ]) przeszłaby, ale psułaby składnię linków w Obsidianie.
  */
 const ILLEGAL_NAME_CHARS = /[\\/:*?"<>|#^[\]]/g;
+
+/**
+ * Znaki sterujące i NUL - obcinają ścieżkę w warstwie systemowej.
+ *
+ * Reguła no-control-regex wyłączona świadomie: te znaki są tu przedmiotem
+ * kontroli, a nie pomyłką autora.
+ */
+// eslint-disable-next-line no-control-regex -- te znaki sa tu przedmiotem kontroli, nie pomylka
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+
+/**
+ * Przesterowanie kierunku tekstu (U+202E i krewni). Nazwa zawierająca RLO
+ * wyświetla się z odwróconym końcem, więc udaje inne rozszerzenie, niż ma.
+ */
+const BIDI_CHARS = /[\u202a-\u202e\u2066-\u2069\u200e\u200f]/;
+
+/**
+ * Wersje globalne, wyłącznie do czyszczenia tytułu.
+ *
+ * Rozdzielone celowo: `replace()` bez /g podmienia tylko pierwsze trafienie,
+ * ale `test()` na wyrażeniu z /g jest stanowy - pamięta `lastIndex` między
+ * wywołaniami, więc co drugie sprawdzenie tej samej nazwy wychodziłoby czyste.
+ */
+const CONTROL_CHARS_ALL = new RegExp(CONTROL_CHARS.source, 'g');
+const BIDI_CHARS_ALL = new RegExp(BIDI_CHARS.source, 'g');
+
+/** Nazwy urządzeń DOS. Na Windowsie plik o takiej nazwie nie powstanie, nawet z rozszerzeniem. */
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
 
 /** Ile razy dopisujemy numer do zajętej nazwy, zanim się poddamy. */
 const MAX_NAME_ATTEMPTS = 100;
@@ -20,31 +59,68 @@ interface PlannedFile {
 	entry: JSZip.JSZipObject;
 }
 
+/** Sprawdzone archiwum, gotowe do zapisania. */
+export interface PackagePlan {
+	files: PlannedFile[];
+	/** Aktywna treść znaleziona w plikach - do pokazania użytkownikowi PRZED zapisem. */
+	findings: Finding[];
+	/** Rozmiar po rozpakowaniu, wg deklaracji archiwum. */
+	totalBytes: number;
+}
+
 /**
- * Rozpakowuje archiwum paczki do nowego folderu w vaulcie.
+ * Sprawdza archiwum i przygotowuje listę plików do zapisania.
  *
- * Zwraca ścieżkę utworzonego folderu - wywołujący używa jej do komunikatu
- * i do otwarcia pobranej notatki.
+ * Rozdzielone od zapisu celowo: pobrana paczka to cudze notatki, więc użytkownik
+ * ma prawo zobaczyć, co w niej jest, ZANIM cokolwiek wyląduje w jego vaulcie.
+ * Sama walidacja niczego nie zapisuje.
  */
-export async function installPackage(
-	app: App,
-	archive: ArrayBuffer,
-	baseFolder: string,
-	packageTitle: string,
-): Promise<string> {
+export async function inspectArchive(archive: ArrayBuffer): Promise<PackagePlan> {
+	if (archive.byteLength === 0) {
+		throw new Error('Pobrany plik jest pusty');
+	}
+	if (archive.byteLength > MAX_ARCHIVE_BYTES) {
+		throw new Error(
+			`Archiwum ma ${formatBytes(archive.byteLength)}, limit to ${formatBytes(MAX_ARCHIVE_BYTES)}`,
+		);
+	}
+	// Sygnatura przed JSZipem: serwer jest publiczny, a jego odpowiedź to po prostu
+	// bajty. Bez tego użytkownik dostawał angielski komunikat wnętrza biblioteki.
+	if (!hasZipMagic(new Uint8Array(archive))) {
+		throw new Error('Pobrany plik nie jest archiwum ZIP');
+	}
+
 	const zip = await JSZip.loadAsync(archive);
 
 	// Całe archiwum sprawdzamy, zanim zapiszemy pierwszy bajt. Walidacja to
-	// same operacje na stringach, a daje gwarancję "albo cała paczka, albo nic".
+	// same operacje na stringach i metadanych, a daje gwarancję "albo cała
+	// paczka, albo nic".
 	const files = planFiles(zip);
 	if (files.length === 0) {
 		throw new Error('Archiwum nie zawiera żadnych plików');
 	}
 
+	const totalBytes = assertUnpackedSize(files, archive.byteLength);
+	const findings = await scanFiles(files);
+
+	return { files, findings, totalBytes };
+}
+
+/**
+ * Zapisuje sprawdzoną paczkę do vaulta i zwraca ścieżkę utworzonego folderu.
+ *
+ * Wywołujący używa jej do komunikatu i do otwarcia pobranej notatki.
+ */
+export async function installPlan(
+	app: App,
+	plan: PackagePlan,
+	baseFolder: string,
+	packageTitle: string,
+): Promise<string> {
 	const root = await createPackageFolder(app, baseFolder, packageTitle);
 
 	try {
-		await writeFiles(app, root, files);
+		await writeFiles(app, root, plan.files);
 	} catch (error) {
 		// pół paczki w vaulcie jest gorsze niż brak paczki
 		await rollback(app, root);
@@ -52,6 +128,16 @@ export async function installPackage(
 	}
 
 	return root;
+}
+
+/** PK\x03\x04 dla zwykłego archiwum, PK\x05\x06 dla archiwum bez wpisów. */
+function hasZipMagic(bytes: Uint8Array): boolean {
+	if (bytes.length < 4) return false;
+	return (
+		bytes[0] === 0x50 &&
+		bytes[1] === 0x4b &&
+		((bytes[2] === 0x03 && bytes[3] === 0x04) || (bytes[2] === 0x05 && bytes[3] === 0x06))
+	);
 }
 
 /**
@@ -63,20 +149,35 @@ export async function installPackage(
  */
 function planFiles(zip: JSZip): PlannedFile[] {
 	const files: PlannedFile[] = [];
+	const seen = new Set<string>();
 
 	for (const entry of Object.values(zip.files)) {
 		// foldery odtwarzamy ze ścieżek plików - ZIP wcale nie musi zawierać
 		// wpisów katalogowych, więc i tak nie można na nich polegać
 		if (entry.dir) continue;
 
-		files.push({ path: safeRelativePath(entry.name), entry });
+		if (files.length >= MAX_ENTRIES) {
+			throw new Error(`Archiwum zawiera ponad ${MAX_ENTRIES} plików`);
+		}
+
+		const path = safeRelativePath(entry.name);
+
+		// macOS i Windows nie rozróżniają wielkości liter, więc "A.md" i "a.md"
+		// to na nich jeden plik - drugi zapis rzuciłby dopiero w połowie instalacji.
+		const key = path.toLowerCase();
+		if (seen.has(key)) {
+			throw new Error(`Zduplikowana ścieżka w archiwum: ${entry.name}`);
+		}
+		seen.add(key);
+
+		files.push({ path, entry });
 	}
 
 	return files;
 }
 
 /**
- * Sprawdza, czy ścieżka z archiwum zostanie wewnątrz folderu paczki.
+ * Sprawdza, czy ścieżka z archiwum jest bezpieczna i czy w ogóle chcemy taki plik.
  *
  * Jeden przebieg po segmentach łapie wszystkie warianty ucieczki naraz:
  * ".." wychodzi poziom wyżej, pusty segment oznacza wiodący ukośnik
@@ -88,15 +189,100 @@ function safeRelativePath(name: string): string {
 	if (name.includes('\\')) {
 		throw new Error(`Niedozwolona ścieżka w archiwum: ${name}`);
 	}
+	if (name.length > MAX_ENTRY_PATH) {
+		throw new Error(`Za długa ścieżka w archiwum: ${name.slice(0, 60)}...`);
+	}
+	if (CONTROL_CHARS.test(name)) {
+		throw new Error('Znaki sterujące w ścieżce archiwum');
+	}
+	if (BIDI_CHARS.test(name)) {
+		// To nie jest kosmetyka: taki plik w panelu plików pokazuje inne
+		// rozszerzenie, niż ma naprawdę.
+		throw new Error('Znaki sterujące kierunkiem tekstu w ścieżce archiwum');
+	}
 
 	const segments = name.split('/');
+	if (segments.length > MAX_ENTRY_DEPTH) {
+		throw new Error(`Za głębokie zagnieżdżenie w archiwum (${segments.length} poziomów)`);
+	}
+
 	for (const segment of segments) {
 		if (segment === '' || segment === '.' || segment === '..') {
 			throw new Error(`Niedozwolona ścieżka w archiwum: ${name}`);
 		}
+		// Kropka na początku ukrywa plik przed panelem plików Obsidiana - paczka
+		// nie ma powodu przemycać niewidocznej zawartości.
+		if (segment.startsWith('.')) {
+			throw new Error(`Ukryty plik lub folder w archiwum: ${name}`);
+		}
+		// Windows po cichu obcina końcową kropkę i spację, więc "nota .md" i "nota.md"
+		// stają się tym samym plikiem - a to gotowa kolizja w połowie zapisu.
+		if (/[. ]$/.test(segment)) {
+			throw new Error(`Nazwa kończąca się kropką lub spacją: ${name}`);
+		}
+		if (WINDOWS_RESERVED.test(segment)) {
+			throw new Error(`Zarezerwowana nazwa systemowa w archiwum: ${segment}`);
+		}
+	}
+
+	// Rozszerzenia trzymamy tą samą listą, którą filtrujemy przy publikowaniu.
+	// Bez tego pobranie paczki zapisywało do vaulta .js, .exe i pliki bez rozszerzenia,
+	// choć spakować dało się wyłącznie notatki i obrazki.
+	const extension = extensionOf(name);
+	if (!ALLOWED_EXTENSIONS.includes(extension)) {
+		throw new Error(
+			`Niedozwolony typ pliku w archiwum: ${name}` +
+				(extension ? ` (.${extension})` : ' (brak rozszerzenia)'),
+		);
 	}
 
 	return segments.join('/');
+}
+
+/**
+ * Sprawdza rozmiar po rozpakowaniu, korzystając z deklaracji z archiwum.
+ *
+ * To jedyny moment, w którym da się zatrzymać bombę zip: po `async()` jest już
+ * za późno, bo dane siedzą w pamięci. 204 kB archiwum potrafi zadeklarować
+ * 200 MB zawartości.
+ *
+ * `_data` jest polem wewnętrznym JSZipa, więc czytamy je defensywnie - gdyby
+ * biblioteka je kiedyś przemianowała, zostaje limit na liczbie plików.
+ */
+function assertUnpackedSize(files: PlannedFile[], archiveBytes: number): number {
+	let total = 0;
+
+	for (const file of files) {
+		const data = (file.entry as unknown as { _data?: { uncompressedSize?: number } })._data;
+		total += typeof data?.uncompressedSize === 'number' ? data.uncompressedSize : 0;
+	}
+
+	if (total > MAX_UNCOMPRESSED_BYTES) {
+		throw new Error(
+			`Paczka po rozpakowaniu zajęłaby ${formatBytes(total)}, limit to ${formatBytes(MAX_UNCOMPRESSED_BYTES)}`,
+		);
+	}
+
+	// Sam sufit nie wystarcza: archiwum tuż pod nim, ważące 200 kB, dalej jest bombą.
+	if (total > MAX_COMPRESSION_RATIO * archiveBytes) {
+		throw new Error(
+			`Podejrzany stopień kompresji: ${formatBytes(archiveBytes)} archiwum rozpakowuje się do ${formatBytes(total)}`,
+		);
+	}
+
+	return total;
+}
+
+/** Czyta pliki tekstowe z archiwum i szuka w nich aktywnej treści. */
+async function scanFiles(files: PlannedFile[]): Promise<Finding[]> {
+	const findings: Finding[] = [];
+
+	for (const file of files) {
+		if (!isScannable(file.path)) continue;
+		findings.push(...scanContent(file.path, await file.entry.async('string')));
+	}
+
+	return findings;
 }
 
 /** Tworzy pusty folder na paczkę i zwraca jego ścieżkę. */
@@ -133,14 +319,22 @@ async function createPackageFolder(
  *
  * Tytuł wpisał człowiek w formularzu publikacji, więc może zawierać cokolwiek -
  * łącznie ze znakami, które rozwalają ścieżkę albo tworzą folder ukryty.
+ * Przycinamy też długość: systemy plików trzymają limit ~255 bajtów na segment,
+ * a serwer przyjmował do niedawna tytuły na 200 tysięcy znaków.
  */
 function toFolderName(title: string): string {
 	const name = title
+		.replace(CONTROL_CHARS_ALL, '')
+		.replace(BIDI_CHARS_ALL, '')
 		.replace(ILLEGAL_NAME_CHARS, '-')
 		// wiodąca kropka ukrywa folder przed Obsidianem, końcowa psuje ścieżki na Windowsie
-		.replace(/^[.\s]+|[.\s]+$/g, '');
+		.replace(/^[.\s]+|[.\s]+$/g, '')
+		.slice(0, MAX_FOLDER_NAME)
+		// obcięcie mogło odsłonić kolejną kropkę albo spację na końcu
+		.replace(/[.\s]+$/g, '');
 
-	return name || 'paczka';
+	if (!name) return 'paczka';
+	return WINDOWS_RESERVED.test(name) ? `paczka ${name}` : name;
 }
 
 /** normalizePath() czyści ukośniki, ale zostawia ".." - a to wyprowadza poza vault. */
@@ -197,4 +391,16 @@ async function rollback(app: App, root: string): Promise<void> {
 	} catch (error) {
 		console.error('Nie udało się posprzątać po nieudanej instalacji', error);
 	}
+}
+
+function extensionOf(path: string): string {
+	const dot = path.lastIndexOf('.');
+	const slash = path.lastIndexOf('/');
+	return dot === -1 || dot < slash ? '' : path.slice(dot + 1).toLowerCase();
+}
+
+export function formatBytes(bytes: number): string {
+	if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+	if (bytes >= 1024) return `${Math.round(bytes / 1024)} kB`;
+	return `${bytes} B`;
 }

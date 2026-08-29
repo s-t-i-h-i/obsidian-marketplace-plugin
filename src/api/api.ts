@@ -1,6 +1,6 @@
 import { requestUrl } from 'obsidian';
 import type { RequestUrlResponse } from 'obsidian';
-import type { MarketplaceSettings } from './settings';
+import type { MarketplaceSettings } from '../settings';
 
 /** Format tokenu wydawanego przez serwer: 'omp_' + 64 znaki hex, same małe litery. */
 export const TOKEN_RE = /^omp_[0-9a-f]{64}$/;
@@ -43,10 +43,7 @@ export async function apiRequest(
 	settings: MarketplaceSettings,
 	req: ApiRequest,
 ): Promise<RequestUrlResponse> {
-	const apiBaseUrl = settings.apiBaseUrl.trim();
-	if (!apiBaseUrl) {
-		throw new Error('Ustaw adres API w ustawieniach pluginu');
-	}
+	const apiBaseUrl = assertSafeApiUrl(settings.apiBaseUrl);
 
 	const headers: Record<string, string> = {};
 	if (req.auth) {
@@ -60,7 +57,7 @@ export async function apiRequest(
 	}
 
 	const response = await requestUrl({
-		url: `${apiBaseUrl.replace(/\/+$/, '')}${req.path}`,
+		url: `${apiBaseUrl}${req.path}`,
 		method: req.method ?? 'GET',
 		...(req.contentType ? { contentType: req.contentType } : {}),
 		...(req.body ? { body: req.body } : {}),
@@ -77,6 +74,52 @@ export async function apiRequest(
 	}
 
 	return response;
+}
+
+/**
+ * Sprawdza adres serwera, ZANIM poleci do niego token.
+ *
+ * Adres jest polem tekstowym w ustawieniach, więc jest atakiem socjotechnicznym
+ * na jedno wklejenie: "żeby dostać paczkę X, ustaw adres API na ...". Token leci
+ * nagłówkiem przy każdym uwierzytelnionym żądaniu, więc podmiana adresu = oddanie
+ * konta. Kontrole są tanie i wykonują się raz na żądanie.
+ */
+export function assertSafeApiUrl(raw: string): string {
+	const value = raw.trim();
+	if (!value) {
+		throw new Error('Ustaw adres API w ustawieniach pluginu');
+	}
+
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new Error(`Adres API nie jest poprawnym URL-em: ${value}`);
+	}
+
+	if (url.protocol !== 'https:' && !isLocalhost(url.hostname)) {
+		// http:// niesie token otwartym tekstem, a ten nie wygasa - jedno podsłuchanie
+		// w sieci publicznej daje dostęp na zawsze. Localhost zostaje, bo to tryb pracy
+		// z `wrangler dev` i ruch nie opuszcza maszyny.
+		throw new Error('Adres API musi używać https:// (wyjątkiem jest localhost)');
+	}
+
+	// Dane logowania w URL-u trafiłyby do nagłówka Authorization obok naszego tokenu.
+	if (url.username || url.password) {
+		throw new Error('Adres API nie może zawierać nazwy użytkownika ani hasła');
+	}
+
+	// Ścieżkę doklejamy sami; bazowy adres z własną ścieżką albo zapytaniem
+	// przestawiłby każdy endpoint w nieprzewidziane miejsce.
+	if (url.search || url.hash) {
+		throw new Error('Adres API nie może zawierać parametrów ani kotwicy');
+	}
+
+	return url.origin + url.pathname.replace(/\/+$/, '');
+}
+
+function isLocalhost(hostname: string): boolean {
+	return ['localhost', '127.0.0.1', '::1', '[::1]'].includes(hostname);
 }
 
 /** Serwer przy błędzie zwraca {"error": "..."} - wyciągamy sam komunikat. */

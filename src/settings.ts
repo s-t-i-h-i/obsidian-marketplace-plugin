@@ -1,7 +1,8 @@
 import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
 import type { TextComponent } from 'obsidian';
 import MarketplacePlugin from './main';
-import { TOKEN_RE, UnauthorizedError } from './api/api';
+import { TOKEN_RE, UnauthorizedError, assertSafeApiUrl } from './api/api';
+import { DEFAULT_API_BASE_URL } from './constants';
 import { closeAccount, createToken, fetchMe, registerAccount, revokeToken } from './api/accountApi';
 import { armButton } from './ui';
 
@@ -17,7 +18,7 @@ export interface MarketplaceSettings {
 }
 
 export const DEFAULT_SETTINGS: MarketplaceSettings = {
-	apiBaseUrl: '',
+	apiBaseUrl: DEFAULT_API_BASE_URL,
 	token: '',
 	username: '',
 	userId: '',
@@ -25,22 +26,20 @@ export const DEFAULT_SETTINGS: MarketplaceSettings = {
 };
 
 /**
- * Ostrzeżenie o niezaszyfrowanym połączeniu. Token nie wygasa i nie rotuje się,
- * więc podsłuchanie go raz na otwartym HTTP daje dostęp na zawsze. Localhost
- * jest w porządku - to domyślny tryb pracy z `wrangler dev`.
+ * Komunikat o adresie API.
+ *
+ * Sprawdzamy tą samą funkcją, która blokuje żądanie w api.ts - inaczej ustawienia
+ * mówiłyby "w porządku", a publikacja i tak by nie ruszyła. Wcześniej było tu
+ * wyłącznie miękkie ostrzeżenie o http://, więc token dalej leciał otwartym tekstem.
  */
-function insecureUrlWarning(apiBaseUrl: string): string {
+function apiUrlProblem(apiBaseUrl: string): string {
 	const value = apiBaseUrl.trim();
 	if (!value) return '';
 
 	try {
-		const url = new URL(value);
-		const local = ['localhost', '127.0.0.1', '[::1]', '::1'];
-		if (url.protocol === 'http:' && !local.includes(url.hostname)) {
-			return 'Uwaga: adres używa http://, więc token leci przez sieć otwartym tekstem.';
-		}
-	} catch {
-		// niedokończony adres w trakcie pisania - nie ma o czym ostrzegać
+		assertSafeApiUrl(value);
+	} catch (error) {
+		return error instanceof Error ? error.message : String(error);
 	}
 	return '';
 }
@@ -81,10 +80,13 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 	private renderConnection(containerEl: HTMLElement): void {
 		new Setting(containerEl).setName('Połączenie').setHeading();
 
-		const warning = insecureUrlWarning(this.plugin.settings.apiBaseUrl);
+		const warning = apiUrlProblem(this.plugin.settings.apiBaseUrl);
 		const setting = new Setting(containerEl)
 			.setName('Adres API')
-			.setDesc('Bazowy URL serwera marketplace.')
+			.setDesc(
+				'Bazowy URL serwera marketplace. Zmieniaj tylko wtedy, gdy wiesz, po co - ' +
+					'token leci do tego adresu przy każdej publikacji.',
+			)
 			.addText((text) =>
 				text
 					.setPlaceholder('https://twoj-worker.workers.dev')

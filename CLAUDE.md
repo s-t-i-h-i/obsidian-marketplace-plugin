@@ -56,12 +56,13 @@ Dwa przepływy, każdy w osobnym zestawie modułów. Wspólny jest tylko format 
 ```
 PUBLIKOWANIE                              POBIERANIE
 menu kontekstowe folderu                  komenda "Open marketplace"
-  publishModal.ts   formularz               marketplaceModal.ts   siatka kafelków
+  publishModal.ts   formularz + przegląd    marketplaceModal.ts   siatka kafelków
   files.ts          zbiórka + linki         packagesApi.ts        GET /packages
-  publishApi.ts     ZIP + multipart         packagesApi.ts        GET /download/:id
-       (oba przechodzą przez api.ts — Authorization + obsługa błędów)
-       |                                    installs.ts           walidacja + zapis
-       v                                         ^
+  scan.ts           aktywna treść           packagesApi.ts        GET /download/:id
+  publishApi.ts     ZIP + multipart         scan.ts + installs.ts walidacja + zapis
+       (oba przechodzą przez api/api.ts — Authorization + adres + obsługa błędów)
+       |                                         ^
+       v                                         |
    POST /publish  ------>  Worker  ------>  GET /download/:id
                           D1 + R2
 ```
@@ -70,12 +71,15 @@ menu kontekstowe folderu                  komenda "Open marketplace"
 |---|---|
 | [src/main.ts](src/main.ts) | Wyłącznie cykl życia: komenda `open-marketplace`, pozycja **Publikuj** w menu kontekstowym folderu, rejestracja zakładki ustawień. Trzymaj ten plik mały. |
 | [src/settings.ts](src/settings.ts) | `MarketplaceSettings` = `apiBaseUrl`, `token`, `username`, `userId`, `downloadFolder`. Wartości puste są dozwolone — walidacja dzieje się w miejscu użycia, nie w `onChange`. Zakładka sama się nie przerysowuje: po rejestracji i wylogowaniu trzeba zawołać `this.display()`. |
-| [src/api.ts](src/api.ts) | Jedyna droga do serwera. Skleja URL, wstrzykuje `Authorization`, rozpakowuje `{"error"}` i rozróżnia `UnauthorizedError` od `ApiError`. Zwraca surową odpowiedź — treść czyta wywołujący. |
-| [src/accountApi.ts](src/accountApi.ts) | `registerAccount()`, `fetchMe()`, `createToken()`, `revokeToken()`, `closeAccount()`. |
+| [src/api/api.ts](src/api/api.ts) | Jedyna droga do serwera. Skleja URL, wstrzykuje `Authorization`, rozpakowuje `{"error"}` i rozróżnia `UnauthorizedError` od `ApiError`. Zwraca surową odpowiedź — treść czyta wywołujący. |
+| [src/api/accountApi.ts](src/api/accountApi.ts) | `registerAccount()`, `fetchMe()`, `createToken()`, `revokeToken()`, `closeAccount()`. |
 | [src/ui.ts](src/ui.ts) | `armButton()` — dwustopniowe potwierdzenie dla akcji nieodwracalnych. Obsidian nie ma okna potwierdzenia. |
-| [src/files.ts](src/files.ts) | `collectFiles()` schodzi rekurencyjnie po folderze, filtruje po `ALLOWED_EXTENSIONS`, pomija katalogi zaczynające się od kropki. `findBrokenLinks()` czyta `app.metadataCache.resolvedLinks` i wykrywa linki wychodzące poza publikowany zestaw. |
-| [src/publishApi.ts](src/publishApi.ts) | Pakuje pliki JSZipem i ręcznie buduje ciało `multipart/form-data`. Autor **nie** jest polem formularza — bierze się z tokenu po stronie serwera. |
-| [src/packagesApi.ts](src/packagesApi.ts) | `fetchPackages()` (lista), `fetchPackage()` (szczegóły ze strukturą), `downloadPackageArchive()` (binarnie) i `deletePackage()`. Surowe wiersze z D1 przechodzą przez `toPackage()`, który wymusza typy — pola z bazy bywają `null`. |
+| [src/constants.ts](src/constants.ts) | `ALLOWED_EXTENSIONS` (jedna lista dla publikacji i instalacji) oraz limity archiwum: rozmiar, liczba plików, głębokość, stopień kompresji. |
+| [src/scan.ts](src/scan.ts) | Wykrywanie **aktywnej treści**: bloki wykonywane przez wtyczki (`dataviewjs`, Templater, Execute Code), `<script>`, `<iframe>`, atrybuty zdarzeń, `javascript:`, węzły `link` w canvasie, skrypty w SVG, treść ładowana z sieci. Heurystyka — **ostrzega, nie blokuje**. |
+| [src/review.ts](src/review.ts) | Wspólny widok znalezisk dla obu przepływów. Notice się nie nadaje: znika i nie da się go przewinąć. |
+| [src/files.ts](src/files.ts) | `collectFiles()` schodzi rekurencyjnie po folderze, filtruje po `ALLOWED_EXTENSIONS`, pomija katalogi zaczynające się od kropki. `findBrokenLinks()` czyta **oba** indeksy — `resolvedLinks` (cel poza paczką → `problem: 'outside'`) i `unresolvedLinks` (cel nie istnieje → `'unresolved'`). |
+| [src/api/publishApi.ts](src/api/publishApi.ts) | Pakuje pliki JSZipem i ręcznie buduje ciało `multipart/form-data`. Autor **nie** jest polem formularza — bierze się z tokenu po stronie serwera. |
+| [src/api/packagesApi.ts](src/api/packagesApi.ts) | `fetchPackages()` (lista), `fetchPackage()` (szczegóły ze strukturą), `downloadPackageArchive()` (binarnie) i `deletePackage()`. Surowe wiersze z D1 przechodzą przez `toPackage()`, który wymusza typy — pola z bazy bywają `null`. |
 | [src/installs.ts](src/installs.ts) | Rozpakowanie do vaulta. Najbardziej wrażliwy moduł, opis niżej. |
 | [docs/konta.md](docs/konta.md) | Przewodnik krok po kroku po kontach, tokenach, rotacji i zamykaniu konta. Opisuje też, co robi każdy przycisk w ustawieniach. |
 | [docs/publikowanie.md](docs/publikowanie.md) | Długi polski przewodnik po przepływie publikowania, od kliknięcia do żądania HTTP. |
@@ -99,7 +103,7 @@ więc te dwie akcje są w UI rozdzielone: „Wyloguj z tego urządzenia" czyści
 na serwerze. Rotacja idzie przez `POST /tokens`: wyrób nowy → unieważnij stary. Bez tego
 unieważnienie skradzionego tokenu oznaczałoby utratę konta.
 
-Kod: `src/auth.ts` + `src/http.ts` w repo backendu, [src/api.ts](src/api.ts) w tym repo.
+Kod: `src/auth.ts` + `src/http.ts` w repo backendu, [src/api/api.ts](src/api/api.ts) w tym repo.
 
 ## Kontrakt API
 
@@ -113,14 +117,21 @@ Kod: `src/auth.ts` + `src/http.ts` w repo backendu, [src/api.ts](src/api.ts) w t
 | `POST` | `/tokens` | 🔒 wydaje **dodatkowy** token (`{label}`), max 10 na konto. Zwraca `201 {token}` |
 | `DELETE` | `/tokens` | 🔒 unieważnia bieżący token |
 | `DELETE` | `/account` | 🔒 kasuje konto, jego tokeny i **wszystkie jego paczki** (D1 + R2). Zwraca `{ok, deleted_packages}` |
-| `POST` | `/publish` | 🔒 `multipart/form-data`: `title`, `description`, `tags`, `structure` (JSON, ścieżki względne), `file` (ZIP). Limit 50 MB i 10 paczek/dobę. Autor bierze się z tokenu, przysłane pole `author` jest **ignorowane**. Zwraca `201 {id, filename, author}` |
+| `POST` | `/publish` | 🔒 `multipart/form-data`: `title` (≤200), `description` (≤5000), `tags` (≤200), `file` (ZIP). Limit 50 MB i 10 publikacji/dobę. Autor bierze się z tokenu; pola `author` **i `structure`** są **ignorowane** — strukturę worker czyta z samego archiwum. Zwraca `201 {id, filename, author}`, `413` przy przekroczeniu rozmiaru |
 | `DELETE` | `/packages/:id` | 🔒 tylko właściciel; cudza paczka → `403` |
 
 🔒 = wymaga `Authorization: Bearer omp_<64 hex>`. Brak/zły token → `401`.
 
-Błędy zawsze jako `{"error": "..."}` — po stronie pluginu rozpakowuje to `extractError()` w `api.ts`.
+Błędy zawsze jako `{"error": "..."}` — po stronie pluginu rozpakowuje to `extractError()` w `api/api.ts`.
+Cały `fetch()` workera stoi w `try/catch`, więc nawet nieprzewidziany wyjątek wraca jako JSON **z nagłówkami CORS**,
+a nie jako gołe 500 ze stosem wywołań.
 
-Backend: tabela D1 `packages` (binding `DB`, baza `obsidian-marketplace`), bucket R2 `obsidian-marketaplce-bucket` (binding `BUCKET`). Literówka w nazwie bucketa jest w prawdziwym zasobie Cloudflare — **nie poprawiaj jej**.
+Archiwum jest sprawdzane w `src/zip.ts` (backend) z **katalogu centralnego**, czyli bez dekompresji:
+sygnatura `PK`, brak zip64 i szyfrowania, ≤2000 wpisów, ≤200 MB po rozpakowaniu, stosunek ≤100:1,
+ścieżki względne bez `..`, backslashy, znaków sterujących i przesterowania kierunku tekstu, bez duplikatów.
+Ta sama lista kontrolna stoi po stronie wtyczki w `installs.ts` — serwer i klient mogą być wdrożone rozdzielnie.
+
+Backend: tabela D1 `packages` (binding `DB`, baza `obsidian-marketplace`), tabela `publish_events` (dobowy limit publikacji), bucket R2 `obsidian-marketaplce-bucket` (binding `BUCKET`). Literówka w nazwie bucketa jest w prawdziwym zasobie Cloudflare — **nie poprawiaj jej**.
 
 ## Miny
 
@@ -138,7 +149,7 @@ Rzeczy, które kosztowały czas i nie widać ich z samego kodu.
 
 6. **`eslint-plugin-obsidianmd` waliduje `minAppVersion` względem użytego API.** Sięgnięcie po nowszą metodę to **błąd** lintera, dopóki nie podbijesz `manifest.json` i `versions.json`. Aktualnie `1.6.6`, wymuszone przez `Vault.createFolder` (1.4.0) i `FileManager.trashFile` (1.6.6).
 
-7. **Backend przyjmuje 0-bajtowe ZIP-y** — `publishPackage()` sprawdza górny limit, ale nie dolny. W bazie jest już taka paczka („Test"), serwowana ze statusem 200. Łapie to dopiero kontrola `byteLength` w `downloadPackageArchive()`. Dług do spłacenia po stronie workera.
+7. **Zastane paczki bywają uszkodzone.** Worker przez długi czas przyjmował 0-bajtowe ZIP-y i pliki, które w ogóle nie były archiwami — w bazie leżą takie wpisy (m.in. „Test", „Pusty", „NieZip"), serwowane ze statusem 200. Nowe publikacje odrzuca `inspectZip()`, ale **stare rekordy zostały** i wywalą się dopiero przy pobieraniu. Przy sprzątaniu bazy to pierwsze do usunięcia.
 
 8. **Migracja D1 idzie przed `wrangler deploy`**, nie po. Nowy kod pyta o tabelę, której jeszcze nie ma.
 
@@ -154,11 +165,32 @@ Rzeczy, które kosztowały czas i nie widać ich z samego kodu.
 
 14. **Callback `Setting.addText()` (i `addButton`, `addDropdown`…) wykonuje się SYNCHRONICZNIE w trakcie łańcucha.** Odwołanie w jego wnętrzu do `const setting = new Setting(...)` trafia w martwą strefę czasową i rzuca `Cannot access 'setting' before initialization` — po minifikacji `'e'`, co nic nie mówi. Gorzej: wyjątek leci w środku `display()`, więc **cała reszta zakładki przestaje się renderować**. Komponent zapamiętuj w `let` zadeklarowanym wcześniej, a kolejne przyciski dokładaj po domknięciu łańcucha. `tsc` tego nie łapie — łapie to `uitest` z atrapą DOM-u (patrz niżej).
 
-15. **`structure` jest przepisywana na serwerze**, nie zapisywana tak jak przyszła — `parseStructure()` parsuje, filtruje do samych stringów, obcina do 500 wpisów i serializuje na nowo. W bazie ma leżeć JSON, który wyprodukowaliśmy sami, a nie tekst od klienta.
+15. **`structure` nie pochodzi już od klienta w ogóle.** Wcześniej worker przepisywał przysłaną tablicę (parsował, filtrował, obcinał) — ale to nadal był spis **zadeklarowany** przez wysyłającego, więc podgląd potrafił pokazywać trzy niewinne notatki, a archiwum zawierać pięćset innych plików. Teraz `publishPackage()` czyta nazwy z katalogu centralnego ZIP-a i pole z formularza ignoruje, dokładnie tak jak `author`.
+
+16. **`decodeURIComponent` rzuca `URIError` na niedokończonej sekwencji.** `GET /packages/%` wywracało cały `fetch()` workera: workerd oddawał gołe 500, ze stosem wywołań i **bez nagłówków CORS**, więc wtyczka widziała tylko „błąd sieci". To była ścieżka publiczna, bez tokenu. Dlatego `segment()` łapie wyjątek, a `fetch()` ma zewnętrzny `try/catch`.
+
+17. **Limit liczony ze stanu, który użytkownik może skasować, nie jest limitem.** Dobowy limit publikacji brał się z `SELECT COUNT(*) FROM packages`, więc pętla „opublikuj 10 → usuń 10" zerowała licznik. Zmierzone: 30 publikacji przy limicie 10, i tak w nieskończoność. Liczy się teraz z `publish_events`, którego `DELETE /packages/:id` celowo **nie** rusza.
+
+18. **JSZip normalizuje ścieżki przy `loadAsync()`, więc traversal nie dojdzie do walidatora.** `../../pwned.md` staje się `pwned.md` — plik nie ucieka, ale i nie da się go odróżnić od zwykłej notatki, więc zamierzone „odrzuć całe archiwum" nigdy się nie odpala. Prawdziwe odrzucenie robi backend, który czyta **surowe** nazwy z katalogu centralnego. Nie zakładaj, że kontrola po stronie wtyczki zobaczy oryginalną ścieżkę.
+
+19. **`test()` na wyrażeniu regularnym z flagą `/g` jest stanowy.** Pamięta `lastIndex` między wywołaniami, więc co drugie sprawdzenie tej samej nazwy wychodzi czyste. W `installs.ts` te same klasy znaków istnieją w dwóch wariantach: bez `/g` do `test()`, z `/g` do `replace()`. Nie „upraszczaj" tego z powrotem do jednej stałej.
+
+20. **Rozmiar po rozpakowaniu czyta się z metadanych, nie po `async()`.** `entry._data.uncompressedSize` jest dostępny od razu po `loadAsync()`; po zdekompresowaniu dane siedzą już w pamięci i limit nic nie daje. 204 kB archiwum deklaruje 200 MB zawartości. `_data` to pole wewnętrzne JSZipa — czytane defensywnie, bo może zniknąć przy aktualizacji biblioteki.
+
+21. **Sam sufit bajtów nie łapie bomby zip.** Archiwum mieszczące się tuż pod limitem dalej jest bombą, jeśli waży 200 kB. Potrzebne są oba warunki: bezwzględny limit **i** stosunek `rozpakowane : archiwum` (100:1). Pierwsza wersja miała tylko sufit i przepuściła bombę, bo ta trafiła dokładnie w granicę (`>` zamiast `>=`).
+
+22. **Rozszerzenia trzeba filtrować w OBIE strony.** Publikowanie brało tylko `ALLOWED_EXTENSIONS`, ale instalacja zapisywała z archiwum cokolwiek — `.js`, `.exe`, pliki bez rozszerzenia i dotfile'y niewidoczne w panelu plików. Asymetria „wolno mniej wysłać, niż wolno przyjąć" jest zawsze błędem, nawet gdy oba końce pisze ta sama osoba.
+
+23. **Adres API to pole tekstowe, czyli wektor phishingu.** Token leci nagłówkiem do adresu z ustawień, więc „ustaw adres na …, żeby dostać paczkę X" oddaje konto. `assertSafeApiUrl()` wymusza `https://` (poza localhostem), odrzuca dane logowania w URL-u i parametry zapytania. Ustawienia i warstwa sieciowa wołają **tę samą** funkcję — inaczej zakładka mówiłaby „w porządku", a żądanie i tak by nie ruszyło.
 
 ## Testowanie bez Obsidiana
 
-Logikę `installs.ts` i `packagesApi.ts` można sprawdzić headlessowo: podmienia się moduł `obsidian` na atrapę, a `app.vault` na mapę `ścieżka → zawartość`. Atrapa musi eksportować `normalizePath` oraz klasy używane jako wartości (`Modal`, `Setting`, `PluginSettingTab`, `ButtonComponent`, `Notice`, `Plugin`, `App`, `TFile`, `TFolder`).
+Logikę `installs.ts` i `packagesApi.ts` można sprawdzić headlessowo: podmienia się moduł `obsidian` na atrapę, a `app.vault` na mapę `ścieżka → zawartość`.
+
+Instalacja jest rozbita na dwa kroki właśnie po to, żeby dało się ją testować i żeby
+dało się o nią zapytać użytkownika: `inspectArchive()` waliduje i skanuje, niczego nie
+zapisując, a `installPlan()` zapisuje sprawdzony już plan. Test malware'u kończy się
+na pierwszym kroku i nie potrzebuje atrapy vaulta w ogóle. Atrapa musi eksportować `normalizePath` oraz klasy używane jako wartości (`Modal`, `Setting`, `PluginSettingTab`, `ButtonComponent`, `Notice`, `Plugin`, `App`, `TFile`, `TFolder`).
 
 **Atrapa `requestUrl` musi przekazywać `headers`.** Jeśli tego nie zrobi, testy uwierzytelniania po cichu pojadą bez tokenu, a przypadki „ma być 401" przejdą z zupełnie złego powodu. Warto to zaasertować wprost: zarejestruj konto i sprawdź, że `/me` zwraca 200. `requestUrl` da się odwzorować na node'owym `fetch`, co pozwala testować cały łańcuch przeciwko działającemu `wrangler dev`.
 
@@ -173,7 +205,7 @@ błędy renderowania — `tsc` przepuszcza i martwą strefę czasową, i brakuj�
 Warto asertować, że `display()` **nie rzuca** w obu stanach (z tokenem i bez) oraz że
 kluczowe przyciski istnieją.
 
-Złośliwe archiwum do testów zip-slip trzeba zbudować **poza JSZipem** — JSZip normalizuje ścieżki również przy zapisie, więc test zbudowany jego API niczego nie dowodzi:
+Złośliwe archiwum do testów zip-slip trzeba zbudować **poza JSZipem** — JSZip normalizuje ścieżki również przy zapisie, więc test zbudowany jego API niczego nie dowodzi. Pamiętaj przy tym o minie 18: przy *odczycie* JSZip też normalizuje, więc wariant z `../` sprawdzaj na backendzie (`inspectZip`), a nie we wtyczce:
 
 ```bash
 python3 -c "import zipfile; z=zipfile.ZipFile('/tmp/evil.zip','w'); z.writestr('../../../hacked.md','x'); z.writestr('..\\\\..\\\\win.md','x'); z.writestr('/abs/root.md','x'); z.close()"
@@ -187,3 +219,4 @@ python3 -c "import zipfile; z=zipfile.ZipFile('/tmp/evil.zip','w'); z.writestr('
 - `main.ts` zostaje wyłącznie cyklem życia; logika idzie do osobnych modułów.
 - `AGENTS.md` w tym repo to ogólne zasady pluginów Obsidiana (z szablonu). Ten plik jest warstwą specyficzną dla projektu — przy sprzeczności wygrywa ten plik.
 - `README.md` jest nadal z szablonu `obsidian-sample-plugin` i **nie opisuje tego projektu**. Nie cytuj go jako źródła prawdy.
+- [docs/publikowanie.md](docs/publikowanie.md) opisuje przepływ **sprzed** przeglądu zawartości: rozdział 6 twierdzi, że `findBrokenLinks()` widzi wyłącznie linki wychodzące poza zestaw, a rozdział 3, że walidacja blokuje publikację przez `Notice`. Jedno i drugie jest już nieaktualne. Reszta (pakowanie, multipart, kodowanie) trzyma się nadal.
