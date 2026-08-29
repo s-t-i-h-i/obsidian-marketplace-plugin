@@ -1,5 +1,6 @@
 import { App, TFile, TFolder } from 'obsidian';
-import { ALLOWED_EXTENSIONS } from './constants';
+import { ALLOWED_EXTENSIONS, MAX_ENTRIES } from './constants';
+import { safeRelativePath } from './installs';
 
 /** Why a link is a problem — this decides what to show the author. */
 export type LinkProblem =
@@ -33,6 +34,42 @@ export function collectFiles(folder: TFolder): TFile[] {
 	}
 
 	return result;
+}
+
+/**
+ * Checks package-relative paths against the same rules installs.ts enforces
+ * before writing an archive to a vault. Without this, a folder can publish
+ * successfully and still be rejected wholesale by every downloader's install
+ * step - collectFiles() only filters by extension, not by name.
+ */
+export function findNameProblems(files: TFile[], prefix: string): string[] {
+	const problems: string[] = [];
+	const seen = new Set<string>();
+
+	if (files.length > MAX_ENTRIES) {
+		problems.push(`${files.length} files, the install limit is ${MAX_ENTRIES}`);
+	}
+
+	for (const file of files) {
+		const relative = file.path.slice(prefix.length);
+
+		try {
+			safeRelativePath(relative);
+		} catch (error) {
+			problems.push(error instanceof Error ? error.message : String(error));
+			continue;
+		}
+
+		// Same case-insensitive check installPlan() applies - macOS and
+		// Windows can't hold both "Note.md" and "note.md".
+		const key = relative.toLowerCase();
+		if (seen.has(key)) {
+			problems.push(`Duplicate path once case is ignored: ${relative}`);
+		}
+		seen.add(key);
+	}
+
+	return problems;
 }
 
 /**

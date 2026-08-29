@@ -1,6 +1,6 @@
 import { ButtonComponent, Modal, Notice, Setting, TFile, TFolder } from 'obsidian';
 import MarketplacePlugin from './main';
-import { collectFiles, findBrokenLinks, type BrokenLink } from './files';
+import { collectFiles, findBrokenLinks, findNameProblems, type BrokenLink } from './files';
 import { publishFolder } from './api/publishApi';
 import { UnauthorizedError } from './api/api';
 import { isScannable, scanContent, type Finding } from './scan';
@@ -78,6 +78,8 @@ class PublishModal extends Modal {
 		this.bodyEl.empty();
 		this.bodyEl.createDiv({ text: 'Checking contents...' });
 
+		const prefix = this.folder.isRoot() ? '' : this.folder.path + '/';
+		const nameProblems = findNameProblems(this.files, prefix);
 		const links = findBrokenLinks(this.app, this.files);
 		const findings = await this.scanFiles();
 		const bytes = this.files.reduce((sum, file) => sum + file.stat.size, 0);
@@ -90,6 +92,14 @@ class PublishModal extends Modal {
 			cls: 'marketplace-detail-desc',
 			text: `To be sent: ${this.files.length} files, ${formatBytes(bytes)}.`,
 		});
+
+		// A hard block, not a warning: installPackage() rejects the whole
+		// archive for a name like this, so "publish anyway" would just move
+		// the failure to every downloader instead of preventing it.
+		if (nameProblems.length > 0) {
+			this.renderNameProblems(nameProblems);
+			return;
+		}
 
 		if (links.length === 0 && findings.length === 0) {
 			this.renderForm();
@@ -126,6 +136,29 @@ class PublishModal extends Modal {
 		}
 
 		return findings;
+	}
+
+	private renderNameProblems(problems: string[]) {
+		this.bodyEl.createEl('h4', { text: `Names no install could accept (${problems.length})` });
+		this.bodyEl.createDiv({
+			cls: 'marketplace-detail-desc',
+			text: 'Every download would reject this archive outright. Rename or remove these before publishing.',
+		});
+
+		const list = this.bodyEl.createDiv({ cls: 'marketplace-findings' });
+		for (const problem of problems.slice(0, MAX_LISTED)) {
+			list.createDiv({ cls: 'marketplace-finding marketplace-finding-danger', text: problem });
+		}
+		if (problems.length > MAX_LISTED) {
+			list.createDiv({
+				cls: 'marketplace-finding-path',
+				text: `...and ${problems.length - MAX_LISTED} more.`,
+			});
+		}
+
+		new Setting(this.bodyEl).addButton((button) =>
+			button.setButtonText('Close').setCta().onClick(() => this.close()),
+		);
 	}
 
 	private renderLinks(links: BrokenLink[]) {

@@ -183,7 +183,7 @@ function planFiles(zip: JSZip): PlannedFile[] {
  * up a level, an empty segment means a leading slash (absolute path) or a
  * doubled "//", and "." is just clutter.
  */
-function safeRelativePath(name: string): string {
+export function safeRelativePath(name: string): string {
 	// Some zip tools write the Windows separator; we won't guess whether
 	// "a\b.md" is one filename or two path segments.
 	if (name.includes('\\')) {
