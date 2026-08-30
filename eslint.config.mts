@@ -7,6 +7,9 @@ export default defineConfig(
 		'node_modules',
 		'dist',
 		'esbuild.config.mjs',
+		// Headless render harness: it fakes the Obsidian API, so the plugin rules
+		// have nothing meaningful to say about it, and it sits outside tsconfig.
+		'test',
 		'version-bump.mjs',
 		'versions.json',
 		'main.js',

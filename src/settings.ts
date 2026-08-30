@@ -3,7 +3,7 @@ import type { TextComponent } from 'obsidian';
 import MarketplacePlugin from './main';
 import { assertSafeApiUrl, TOKEN_RE, UnauthorizedError } from './api/api';
 import { API_BASE_URL } from './constants';
-import { closeAccount, createToken, fetchMe, revokeToken } from './api/accountApi';
+import { closeAccount, fetchMe, revokeToken } from './api/accountApi';
 import { armButton } from './ui';
 
 export interface MarketplaceSettings {
@@ -69,7 +69,7 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 					.onClick(() => window.open(`${assertSafeApiUrl(API_BASE_URL)}/auth/github`)),
 			);
 
-		this.renderTokenField(containerEl, false);
+		this.renderTokenField(containerEl);
 	}
 
 	// --- logged in ---
@@ -79,13 +79,16 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName(`Logged in as: ${who}`)
-			.setDesc('Checks whether the token still works and refreshes account data.')
+			.setDesc('Checks that this device is still signed in, and how many others are.')
 			.addButton((button) =>
 				button.setButtonText('Refresh').onClick(async () => {
 					try {
 						const account = await fetchMe(this.plugin.settings);
 						await this.rememberIdentity(account);
-						new Notice(`Logged in as ${account.username}. Tokens on this account: ${account.tokens}.`);
+						new Notice(
+							`Signed in as ${account.username}. Devices signed in: ` +
+								`${account.devices} of ${account.deviceLimit}.`,
+						);
 						this.display();
 					} catch (error) {
 						new Notice(this.describe(error, 'Connection error'));
@@ -93,17 +96,15 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 				}),
 			);
 
-		this.renderTokenField(containerEl, true);
-
 		// A reversible action, so it lives next to the regular settings, not
 		// in the danger zone below.
 		new Setting(containerEl)
 			.setName('Log out on this device')
-			.setDesc('Removes the token only here. The token stays valid — paste it back in to return to the account.')
+			.setDesc('Signs out of this vault only. Other devices keep working, and signing in with GitHub brings you straight back.')
 			.addButton((button) =>
 				button.setButtonText('Log out').onClick(async () => {
 					await this.forgetIdentity();
-					new Notice('Logged out. The token still works — paste it back in to return.');
+					new Notice('Signed out on this device. Sign in with GitHub to come back.');
 					this.display();
 				}),
 			);
@@ -111,39 +112,25 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 		this.renderDangerZone(containerEl);
 	}
 
-	/** Irreversible actions live in their own section, away from everyday ones. */
+	/** Account-wide actions, kept away from the everyday ones. */
 	private renderDangerZone(containerEl: HTMLElement): void {
 		new Setting(containerEl).setName('Advanced').setHeading();
 
 		new Setting(containerEl)
-			.setName('Token for another device')
-			.setDesc('Issues an additional token. An account can have at most 10.')
-			.addButton((button) =>
-				button.setButtonText('Issue new').onClick(async () => {
-					try {
-						const token = await createToken(this.plugin.settings, 'obsidian');
-						// This token isn't saved anywhere, so it must stay
-						// visible on screen even if the clipboard copy fails.
-						new Notice(`New token — save it now:\n${token}`, 0);
-						await this.copy(token, 'New token');
-					} catch (error) {
-						new Notice(this.describe(error, 'Failed to issue token'));
-					}
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName('Revoke this token')
-			.setDesc('Deletes the token on the server — use this if it leaked. If it is the account\'s only token, you will lose access to it.')
+			.setName('Revoke this device on the server')
+			.setDesc(
+				'Ends this device\'s access on the server, not just here — use it if the token you pasted ' +
+					'leaked. Other devices are unaffected, and signing in with GitHub gets you back in.',
+			)
 			.addButton((button) =>
 				armButton(button, 'Revoke', 'Are you sure?', () => {
 					void (async () => {
 						try {
 							await revokeToken(this.plugin.settings);
-							new Notice('Token revoked');
+							new Notice('This device no longer has access.');
 						} catch (error) {
 							console.error(error);
-							new Notice('Failed to revoke on the server, removing locally.');
+							new Notice('The server could not be reached — signing out here only.');
 						}
 						// Clear the local token even if the server call
 						// failed — otherwise the user thinks it's revoked
@@ -156,7 +143,10 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Close account')
-			.setDesc('Deletes the account, its tokens, and all published packages. This cannot be undone.')
+			.setDesc(
+				'Deletes the account, every device signed in to it, and all published packages. This cannot ' +
+					'be undone — signing in with GitHub afterwards starts a brand-new account.',
+			)
 			.addButton((button) =>
 				armButton(button, 'Close account', 'Delete everything?', () => {
 					void (async () => {
@@ -181,15 +171,14 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 	 * throws "Cannot access before initialization". The component is stored
 	 * in `input` instead, and extra buttons are added after the chain ends.
 	 */
-	private renderTokenField(containerEl: HTMLElement, loggedIn: boolean): void {
+	private renderTokenField(containerEl: HTMLElement): void {
 		let input: TextComponent | null = null;
 
 		const setting = new Setting(containerEl)
-			.setName(loggedIn ? 'Your token' : 'Paste your token')
+			.setName('Paste your token')
 			.setDesc(
-				(loggedIn
-					? 'Save it somewhere safe — without it you cannot get back into the account. It sits as plain text in data.json inside the vault.'
-					: 'The token from the GitHub page, or one you saved earlier. It starts with omp_ and is 68 characters long.') +
+				'The token from the GitHub page, or one you saved earlier. It starts with omp_ and is ' +
+					'68 characters long.' +
 					// The server address can't be changed anymore, but it's
 					// still useful to see where the token is going — e.g. to
 					// tell a dev build apart from production.
@@ -216,8 +205,8 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 					});
 			});
 
-		// Without a reveal button there's no way to copy down a pasted
-		// token, and without a saved copy, logging out would be a one-way trip.
+		// Reveal exists to check a paste that went wrong — a truncated token
+		// is otherwise indistinguishable from a correct one behind the dots.
 		setting.addExtraButton((extra) =>
 			extra
 				.setIcon('eye')
@@ -230,30 +219,21 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 				}),
 		);
 
-		if (loggedIn) {
-			setting.addExtraButton((extra) =>
-				extra
-					.setIcon('copy')
-					.setTooltip('Copy token to clipboard')
-					.onClick(() => void this.copy(this.plugin.settings.token, 'Token')),
-			);
-		} else {
-			setting.addButton((button) =>
-				button
-					.setButtonText('Log in')
-					.setCta()
-					.onClick(async () => {
-						try {
-							const account = await fetchMe(this.plugin.settings);
-							await this.rememberIdentity(account);
-							new Notice(`Logged in as ${account.username}`);
-							this.display();
-						} catch (error) {
-							new Notice(this.describe(error, 'Failed to log in'));
-						}
-					}),
-			);
-		}
+		setting.addButton((button) =>
+			button
+				.setButtonText('Log in')
+				.setCta()
+				.onClick(async () => {
+					try {
+						const account = await fetchMe(this.plugin.settings);
+						await this.rememberIdentity(account);
+						new Notice(`Signed in as ${account.username}`);
+						this.display();
+					} catch (error) {
+						new Notice(this.describe(error, 'Failed to log in'));
+					}
+				}),
+		);
 	}
 
 	// --- helpers ---
@@ -272,19 +252,9 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 		await this.plugin.saveSettings();
 	}
 
-	/** The clipboard can be unavailable, and failing silently here would be painful. */
-	private async copy(value: string, label: string): Promise<void> {
-		try {
-			await navigator.clipboard.writeText(value);
-			new Notice(`${label} copied to clipboard`);
-		} catch {
-			new Notice('Clipboard unavailable — copy the token manually from the field (the eye icon reveals it).');
-		}
-	}
-
 	private describe(error: unknown, prefix: string): string {
 		if (error instanceof UnauthorizedError) {
-			return 'The server rejected the token. Check that it is correct.';
+			return 'The server rejected the token. Paste it again, or sign in with GitHub for a new one.';
 		}
 		return `${prefix}: ${error instanceof Error ? error.message : String(error)}`;
 	}
