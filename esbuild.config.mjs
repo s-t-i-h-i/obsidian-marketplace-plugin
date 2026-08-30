@@ -25,7 +25,7 @@ const prod = process.argv[2] === 'production';
  * running a separate marketplace instance.
  */
 const DEV_API_URL = 'http://127.0.0.1:8787';
-const PROD_API_URL = 'https://obsidian-marketplace-api.adi-gorniak.workers.dev';
+const PROD_API_URL = 'https://notes-hub-api.appflowly.com';
 
 const override = process.env.MARKETPLACE_API_URL?.trim();
 const apiBaseUrl = assertSafeApiUrl(override || (prod ? PROD_API_URL : DEV_API_URL));

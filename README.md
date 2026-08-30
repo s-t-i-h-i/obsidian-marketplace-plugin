@@ -14,7 +14,7 @@ Notes Hub is meant to be the first public, community-built collection of notes f
 - **Broken link detection.** Before publishing, the plugin checks for links pointing outside the selected folder or to notes that don't exist, so you don't accidentally ship broken references.
 - **Content review before download.** Downloaded packages are scanned for active content (embedded scripts, dataviewjs blocks, Templater syntax, and similar) and flagged before installation. You decide whether to proceed.
 - **Vault isolation.** Downloaded packages are extracted into their own folder. They don't spill tags, queries, or files into the rest of your vault.
-- **No email, no password.** Registration only needs a username, and is only required if you want to publish your content.
+- **No email, no password.** Sign in with GitHub — only required if you want to publish your content.
 - **Browse and search.** A built-in modal lists available packages with title, author, description, and tags. downloading does not require registration!
 
 ## Installation
@@ -30,9 +30,9 @@ Alternatively, install through [BRAT](https://github.com/TfTHacker/obsidian42-br
 
 ## Getting started
 
-### Register an account
+### Sign in
 
-Open *Settings → Notes Hub* and choose a username. This generates a personal access token, shown once. It's stored locally in your vault — there's no way to recover it if lost, but you can revoke it and issue a new one at any time from the same settings tab.
+Open *Settings → Notes Hub* and select **Connect GitHub**. This opens your browser to sign in with GitHub, then shows a personal access token to paste back into the settings tab. It's stored locally in your vault — if you ever lose it, just sign in with GitHub again for a new one.
 
 ### Publish a package
 
@@ -57,7 +57,7 @@ The package is extracted into a new, isolated folder in your vault, named after 
 | Setting | Description |
 |---|---|
 | Username | Your public author name, shown on published packages. |
-| Token | Your personal access token. Can be rotated or revoked. |
+| Token | Your personal access token, issued when you sign in with GitHub. Can be revoked from the same tab. |
 | Download folder | Where downloaded packages are placed in your vault. |
 
 ## Security and privacy
