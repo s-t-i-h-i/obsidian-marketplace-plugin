@@ -1,9 +1,9 @@
 import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
 import type { TextComponent } from 'obsidian';
 import MarketplacePlugin from './main';
-import { TOKEN_RE, UnauthorizedError } from './api/api';
+import { assertSafeApiUrl, TOKEN_RE, UnauthorizedError } from './api/api';
 import { API_BASE_URL } from './constants';
-import { closeAccount, createToken, fetchMe, registerAccount, revokeToken } from './api/accountApi';
+import { closeAccount, createToken, fetchMe, revokeToken } from './api/accountApi';
 import { armButton } from './ui';
 
 export interface MarketplaceSettings {
@@ -57,35 +57,16 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 	// --- logged out ---
 
 	private renderLoggedOut(containerEl: HTMLElement): void {
-		let username = '';
-
 		new Setting(containerEl)
-			.setName('Create a new account')
-			.setDesc('Use 3 to 32 characters: letters, digits, underscore, hyphen.')
-			.addText((text) =>
-				text.setPlaceholder('Username').onChange((value) => {
-					username = value;
-				}),
-			)
+			.setName('Sign in with GitHub')
+			.setDesc('Opens github.com in your browser. Copy the token you get there and paste it below.')
 			.addButton((button) =>
 				button
-					.setButtonText('Create account')
+					.setButtonText('Connect GitHub')
 					.setCta()
-					.onClick(async () => {
-						try {
-							const account = await registerAccount(this.plugin.settings, username.trim());
-							this.plugin.settings.token = account.token;
-							await this.rememberIdentity(account);
-							new Notice(
-								`Account ${account.username} created. The token is in the field below — save it, ` +
-									'the server will not show it again.',
-								0,
-							);
-							this.display();
-						} catch (error) {
-							new Notice(this.describe(error, 'Failed to create account'));
-						}
-					}),
+					// Built from the same checked address as every other request, so a
+					// bad API address can't turn this button into a phishing link.
+					.onClick(() => window.open(`${assertSafeApiUrl(API_BASE_URL)}/auth/github`)),
 			);
 
 		this.renderTokenField(containerEl, false);
@@ -204,11 +185,11 @@ export class MarketplaceSettingTab extends PluginSettingTab {
 		let input: TextComponent | null = null;
 
 		const setting = new Setting(containerEl)
-			.setName(loggedIn ? 'Your token' : 'I already have a token')
+			.setName(loggedIn ? 'Your token' : 'Paste your token')
 			.setDesc(
 				(loggedIn
 					? 'Save it somewhere safe — without it you cannot get back into the account. It sits as plain text in data.json inside the vault.'
-					: 'Paste a token to return to an existing account. It starts with omp_ and is 68 characters long.') +
+					: 'The token from the GitHub page, or one you saved earlier. It starts with omp_ and is 68 characters long.') +
 					// The server address can't be changed anymore, but it's
 					// still useful to see where the token is going — e.g. to
 					// tell a dev build apart from production.
